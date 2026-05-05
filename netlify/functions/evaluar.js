@@ -1,4 +1,6 @@
 exports.handler = async function (event) {
+
+  // 🔹 CORS
   if (event.httpMethod === "OPTIONS") {
     return {
       statusCode: 204,
@@ -29,33 +31,50 @@ exports.handler = async function (event) {
       accion: r.accion,
     }));
 
-    const prompt = `Eres un auditor SISO. Para CADA reporte, asigna puntajes SEGÚN ESTAS REGLAS:
+    // 🔥 PROMPT MEJORADO (ESTRICTO)
+    const prompt = `Eres un auditor SISO experto en seguridad industrial.
 
-REGLAS DE PUNTAJE:
-- relacionada: 30 si está relacionada con SISO, 0 si no
-- grupo: 10 si aplica a grupo específico, 0 si no  
-- corrige: 60 si el trabajador DEBE corregir, 0 si no
-- informa: 25 si solo DEBE informar, 0 si no
+Evalúa cada reporte con criterio profesional.
 
-REGLAS OBLIGATORIAS:
-- NUNCA asignar corrige=60 e informa=25 en el mismo reporte
+CRITERIOS:
 
-RESPONDE ÚNICAMENTE con un array JSON.
+1. relacionada:
+- 30 SOLO si hay riesgo real de seguridad
+- 0 si es leve (orden, limpieza, mejora menor)
 
-FORMATO EXACTO:
+2. grupo:
+- 10 si menciona colaborador u operador
+- 0 si es general
+
+3. corrige:
+- 60 si corrige directamente
+- 0 si no
+
+4. informa:
+- 25 si solo reporta
+- 0 si no
+
+REGLAS:
+- Nunca corrige=60 e informa=25 juntos
+- No todos los reportes son SISO
+
+RESPONDE SOLO JSON válido.
+
+FORMATO:
 [
   {
     "relacionada": 30,
     "grupo": 10,
     "corrige": 0,
     "informa": 25,
-    "comentario": "Breve justificación"
+    "comentario": "Justificación clara"
   }
 ]
 
 REPORTES:
 ${JSON.stringify(reportesParaIA, null, 2)}`;
 
+    // 🔹 Llamada OpenAI
     const response = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: {
@@ -67,7 +86,7 @@ ${JSON.stringify(reportesParaIA, null, 2)}`;
         messages: [
           {
             role: "system",
-            content: "Eres un auditor SISO. Siempre respondes SOLO con JSON válido."
+            content: "Responde solo JSON válido.",
           },
           {
             role: "user",
@@ -91,63 +110,62 @@ ${JSON.stringify(reportesParaIA, null, 2)}`;
       throw new Error("OpenAI no devolvió contenido");
     }
 
-    console.log("Respuesta OpenAI:", contenido);
+    console.log("Respuesta IA:", contenido);
 
     let evaluaciones = [];
-    let cleanedContent = contenido.trim();
-    
-    if (cleanedContent.startsWith("```json")) {
-      cleanedContent = cleanedContent.replace(/```json\n?/, "").replace(/\n?```$/, "");
+    let cleaned = contenido.trim();
+
+    // 🔹 Limpiar markdown
+    if (cleaned.startsWith("```json")) {
+      cleaned = cleaned.replace(/```json\n?/, "").replace(/\n?```$/, "");
     }
-    if (cleanedContent.startsWith("```")) {
-      cleanedContent = cleanedContent.replace(/```\n?/, "").replace(/\n?```$/, "");
+    if (cleaned.startsWith("```")) {
+      cleaned = cleaned.replace(/```\n?/, "").replace(/\n?```$/, "");
     }
 
+    // 🔹 Parse seguro
     try {
-      const parsed = JSON.parse(cleanedContent);
-      if (Array.isArray(parsed)) {
-        evaluaciones = parsed;
-      } else if (parsed.evaluaciones && Array.isArray(parsed.evaluaciones)) {
-        evaluaciones = parsed.evaluaciones;
-      } else {
-        evaluaciones = [parsed];
-      }
+      const parsed = JSON.parse(cleaned);
+      evaluaciones = Array.isArray(parsed) ? parsed : [parsed];
     } catch (e) {
       console.error("Error parseando JSON:", e);
-      const jsonMatch = contenido.match(/\[[\s\S]*?\]/);
-      if (jsonMatch) {
+
+      const match = contenido.match(/\[[\s\S]*\]/);
+      if (match) {
         try {
-          evaluaciones = JSON.parse(jsonMatch[0]);
-        } catch (e2) {
+          evaluaciones = JSON.parse(match[0]);
+        } catch {
           evaluaciones = [];
         }
       }
     }
 
+    // 🔹 Fallback
     if (evaluaciones.length === 0) {
       evaluaciones = registros.map(() => ({
         relacionada: 0,
         grupo: 0,
         corrige: 0,
         informa: 0,
-        comentario: "Evaluación no disponible"
+        comentario: "No evaluado",
       }));
     }
 
+    // 🔹 Construcción final
     const resultados = registros.map((registro, index) => {
-      const evaluacion = evaluaciones[index] || evaluaciones[0] || {};
-      
-      let relacionada = evaluacion.relacionada === 30 ? 30 : 0;
-      let grupo = evaluacion.grupo === 10 ? 10 : 0;
-      let corrige = evaluacion.corrige === 60 ? 60 : 0;
-      let informa = evaluacion.informa === 25 ? 25 : 0;
-      
+      const ev = evaluaciones[index] || {};
+
+      let relacionada = ev.relacionada === 30 ? 30 : 0;
+      let grupo = ev.grupo === 10 ? 10 : 0;
+      let corrige = ev.corrige === 60 ? 60 : 0;
+      let informa = ev.informa === 25 ? 25 : 0;
+
       if (corrige === 60 && informa === 25) {
         informa = 0;
       }
-      
+
       const total = relacionada + grupo + corrige + informa;
-      
+
       return {
         "No. ACII": registro.numero || "",
         "Descripción": registro.descripcion || "",
@@ -158,7 +176,7 @@ ${JSON.stringify(reportesParaIA, null, 2)}`;
         "Informa (25)": informa,
         "Total": total,
         "Área": registro.area || "",
-        "Comentario IA": evaluacion.comentario || "Sin evaluación específica",
+        "Comentario IA": ev.comentario || "Sin comentario",
       };
     });
 
@@ -173,14 +191,14 @@ ${JSON.stringify(reportesParaIA, null, 2)}`;
 
   } catch (error) {
     console.error("ERROR:", error.message);
-    
+
     return {
       statusCode: 500,
       headers: {
         "Access-Control-Allow-Origin": "*",
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ 
+      body: JSON.stringify({
         error: error.message,
       }),
     };
