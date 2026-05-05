@@ -37,25 +37,45 @@ export const handler = async (event) => {
       accion: r.accion || "",
     }));
 
-    // 🔥 PROMPT MEJORADO (más claro pero sin sobrecargar)
+    // 🔥 PROMPT MEJORADO
     const prompt = `
-Eres auditor SISO en planta industrial.
+Eres un auditor SISO experto en seguridad industrial en planta.
 
-Evalúa con criterio REAL.
-
-PRIORIDAD:
-- Si hay riesgo físico → relacionada = 30
-- Si hay duda → asumir riesgo
+Evalúa con criterio REAL, no seas excesivamente estricto.
 
 CRITERIOS:
-- grupo = 10 si afecta personas o área operativa
-- corrige = 60 si corrige
-- informa = 25 si solo comunica
+
+1. relacionada:
+- 30 si hay riesgo real o potencial (incluye implícitos)
+- Ej: herramientas malas, presión, golpes, cables, etc
+- 0 solo si es administrativo
+
+2. grupo:
+- 10 si afecta a personas o área operativa (aunque no se mencione persona)
+- 0 solo si es completamente aislado
+
+3. corrige:
+- 60 si corrige directamente el riesgo
+
+4. informa:
+- 25 si solo comunica
 
 REGLAS:
 - Nunca corrige e informa juntos
+- Si hay duda → asumir riesgo
 
 RESPONDE SOLO JSON
+
+FORMATO:
+[
+  {
+    "relacionada": 30,
+    "grupo": 10,
+    "corrige": 0,
+    "informa": 25,
+    "comentario": "Justificación clara"
+  }
+]
 
 REPORTES:
 ${JSON.stringify(reportes, null, 2)}
@@ -100,39 +120,12 @@ ${JSON.stringify(reportes, null, 2)}
       }));
     }
 
-    // 🔥 PALABRAS CLAVE (flexibles)
-    const palabrasInforma = ["report", "inform", "avis", "comunic", "traslad"];
-    const palabrasCorrige = ["repar", "corrig", "ajust", "cambi", "deten", "solucion", "paro"];
-
-    // 🔥 PALABRAS DE RIESGO (CLAVE)
-    const palabrasRiesgo = [
-      "herramienta",
-      "rebaba",
-      "cable",
-      "fuga",
-      "presion",
-      "equipo",
-      "defecto",
-      "dañado",
-      "golpe",
-      "atrap",
-      "filo",
-      "corte",
-      "electr",
-      "caliente",
-      "temperatura",
-      "aceite",
-      "aire",
-      "manguera",
-      "conector",
-      "tuberia",
-      "arnes",
-      "altura"
-    ];
+    // 🔥 PALABRAS CLAVE
+    const palabrasInforma = ["reporta", "reporto", "avisa", "informa", "comunica", "traslada"];
+    const palabrasCorrige = ["repara", "corrige", "ajusta", "cambia", "detiene", "se paro"];
 
     // 🔹 resultado final (HÍBRIDO)
     const resultados = registros.map((r, i) => {
-
       const ev = evaluaciones[i] || {};
 
       let relacionada = ev.relacionada === 30 ? 30 : 0;
@@ -140,40 +133,27 @@ ${JSON.stringify(reportes, null, 2)}
       let corrige = ev.corrige === 60 ? 60 : 0;
       let informa = ev.informa === 25 ? 25 : 0;
 
-      const texto = (r.descripcion || "").toLowerCase();
       const accion = (r.accion || "").toLowerCase();
 
-      // 🔥 1. DETECCIÓN FORZADA DE RIESGO
-      if (palabrasRiesgo.some(p => texto.includes(p))) {
-        relacionada = 30;
-      }
+      // 🔥 LOGICA AUTOMATICA
 
-      // 🔥 2. CASOS CRÍTICOS (altura / arnés)
-      if (
-        texto.includes("arnes") ||
-        texto.includes("altura") ||
-        texto.includes("linea de vida")
-      ) {
-        relacionada = 30;
-      }
-
-      // 🔥 3. SI HAY RIESGO → HAY PERSONAS
+      // 1. Si hay riesgo → grupo = 10
       if (relacionada === 30) {
         grupo = 10;
       }
 
-      // 🔥 4. DETECCIÓN DE INFORMAR
+      // 2. Detectar "informa"
       if (palabrasInforma.some(p => accion.includes(p))) {
         informa = 25;
       }
 
-      // 🔥 5. DETECCIÓN DE CORREGIR
+      // 3. Detectar "corrige"
       if (palabrasCorrige.some(p => accion.includes(p))) {
         corrige = 60;
         informa = 0;
       }
 
-      // 🔥 6. REGLA DURA
+      // 4. regla dura
       if (corrige === 60) {
         informa = 0;
       }
