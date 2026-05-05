@@ -1,88 +1,102 @@
 export async function handler(event) {
   const { registros } = JSON.parse(event.body);
 
-  const resultados = [];
+  const prompt = `
+Eres auditor experto en seguridad industrial (SISO).
 
-  for (const r of registros) {
-    const prompt = `
-Eres auditor de seguridad industrial.
+Evalúa estos reportes ACII.
 
-Evalúa este reporte ACII con estos criterios:
+REGLAS ESTRICTAS (NO INTERMEDIOS):
 
-- Relacionada SISO (0-30)
-- Grupo específico (0-10)
-- Corrige (0-60)
-- Informa (0-25)
+- Relacionada SISO: SOLO 0 o 30
+- Grupo específico: SOLO 0 o 10
+- Corrige: SOLO 0 o 60
+- Informa: SOLO 0 o 25
 
-Devuelve SOLO JSON válido sin texto adicional:
+IMPORTANTE:
+- Corrige e Informa NO pueden estar ambos activos
+- Si corrige = 60 → informa = 0
+- Si informa = 25 → corrige = 0
 
-{
-  "relacionada": 0,
-  "grupo": 0,
-  "corrige": 0,
-  "informa": 0,
-  "total": 0,
-  "comentario": ""
-}
+Devuelve SOLO JSON válido, sin texto adicional:
 
-REPORTE:
-Descripción: ${r.descripcion}
-Acción: ${r.accion}
-Área: ${r.area}
+[
+  {
+    "relacionada": 0,
+    "grupo": 0,
+    "corrige": 0,
+    "informa": 0,
+    "comentario": ""
+  }
+]
+
+REPORTES:
+${JSON.stringify(registros)}
 `;
 
-    let evaluacion = {
-      relacionada: 0,
-      grupo: 0,
-      corrige: 0,
-      informa: 0,
-      total: 0,
-      comentario: "Error IA",
-    };
+  try {
+    const response = await fetch("https://api.openai.com/v1/responses", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": \`Bearer \${process.env.OPENAI_API_KEY}\`,
+      },
+      body: JSON.stringify({
+        model: "gpt-4o-mini",
+        input: prompt,
+      }),
+    });
 
-    try {
-      const response = await fetch("https://api.openai.com/v1/responses", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${process.env.OPENAI_API_KEY}`,
-        },
-        body: JSON.stringify({
-          model: "gpt-4.1-mini",
-          input: prompt,
-        }),
-      });
+    const data = await response.json();
 
-      const data = await response.json();
+    // 🔥 EXTRAER TEXTO DE IA
+    const texto = data.output?.[0]?.content?.[0]?.text || "";
 
-      const texto = data.output?.[0]?.content?.[0]?.text || "";
+    // 🔥 EXTRAER JSON (aunque venga con texto raro)
+    const jsonMatch = texto.match(/\\[[\\s\\S]*\\]/);
 
-      const jsonMatch = texto.match(/\{[\s\S]*\}/);
+    let evaluaciones = [];
 
-      if (jsonMatch) {
-        evaluacion = JSON.parse(jsonMatch[0]);
-      }
-
-    } catch (error) {
-      console.error("Error IA:", error);
+    if (jsonMatch) {
+      evaluaciones = JSON.parse(jsonMatch[0]);
     }
 
-    resultados.push({
-      "No. ACII": r.numero,
-      "Descripción": r.descripcion,
-      "Acción Inmediata": r.accion,
-      "Relacionada SISO (30)": evaluacion.relacionada,
-      "Grupo específico (10)": evaluacion.grupo,
-      "Corrige (60)": evaluacion.corrige,
-      "Informa (25)": evaluacion.informa,
-      "Total": evaluacion.total,
-      "Área": r.area,
-      "Comentario IA": evaluacion.comentario,
-    });
-  }
+    // 🔥 ARMAR RESULTADO FINAL (VALIDANDO VALORES)
+    const resultados = registros.map((r, i) => {
+      const e = evaluaciones[i] || {};
 
-  return {
-    statusCode: 200,
-    body: JSON.stringify(resultados),
-  };
+      const relacionada = e.relacionada === 30 ? 30 : 0;
+      const grupo = e.grupo === 10 ? 10 : 0;
+      const corrige = e.corrige === 60 ? 60 : 0;
+      const informa = e.informa === 25 ? 25 : 0;
+
+      const total = relacionada + grupo + corrige + informa;
+
+      return {
+        "No. ACII": r.numero,
+        "Descripción": r.descripcion,
+        "Acción Inmediata": r.accion,
+        "Relacionada SISO (30)": relacionada,
+        "Grupo específico (10)": grupo,
+        "Corrige (60)": corrige,
+        "Informa (25)": informa,
+        "Total": total,
+        "Área": r.area,
+        "Comentario IA": e.comentario || "",
+      };
+    });
+
+    return {
+      statusCode: 200,
+      body: JSON.stringify(resultados),
+    };
+
+  } catch (error) {
+    console.error("Error IA:", error);
+
+    return {
+      statusCode: 500,
+      body: JSON.stringify({ error: "Error IA" }),
+    };
+  }
 }
