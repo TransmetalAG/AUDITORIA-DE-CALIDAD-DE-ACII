@@ -48,19 +48,37 @@ ${JSON.stringify(registros)}
 
     const data = await response.json();
 
-    // Extraer texto generado por la IA
-    const texto = data.output?.[0]?.content?.[0]?.text || "";
+    // 🔥 EXTRAER TEXTO DE IA (ROBUSTO)
+    let texto = "";
 
-    // Extraer solo el JSON
+    if (data.output) {
+      for (const item of data.output) {
+        if (item.content) {
+          for (const c of item.content) {
+            if (c.text) {
+              texto += c.text;
+            }
+          }
+        }
+      }
+    }
+
+    console.log("TEXTO IA:", texto);
+
+    // 🔥 EXTRAER JSON DEL TEXTO
     const jsonMatch = texto.match(/\[[\s\S]*\]/);
 
     let evaluaciones = [];
 
     if (jsonMatch) {
-      evaluaciones = JSON.parse(jsonMatch[0]);
+      try {
+        evaluaciones = JSON.parse(jsonMatch[0]);
+      } catch (e) {
+        console.log("Error parseando JSON:", e);
+      }
     }
 
-    // Construir resultado final validando valores
+    // 🔥 ARMAR RESULTADO FINAL
     const resultados = registros.map((r, i) => {
       const e = evaluaciones[i] || {};
 
@@ -81,7 +99,7 @@ ${JSON.stringify(registros)}
         "Informa (25)": informa,
         "Total": total,
         "Área": r.area,
-        "Comentario IA": e.comentario || "",
+        "Comentario IA": e.comentario || "Sin comentario",
       };
     });
 
