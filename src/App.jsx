@@ -13,7 +13,9 @@ export default function App() {
     const sheet = workbook.Sheets[workbook.SheetNames[0]];
     const json = XLSX.utils.sheet_to_json(sheet);
 
-    // 🔥 Lectura completa del Excel
+    // 🔍 DEBUG (puedes borrarlo luego)
+    console.log("Columnas detectadas:", Object.keys(json[0]));
+
     const procesados = json.map((row) => ({
       numero: row["No. ACII"] || "",
       descripcion: row["Descripción"] || row["Descripcion"] || "",
@@ -22,7 +24,12 @@ export default function App() {
         row["Acción Inmec"] ||
         row["Accion"] ||
         "",
-      area: row["Área"] || row["Area"] || "",
+      area:
+        row["Área"] ||
+        row["Area"] ||
+        row["Área de trabajo"] ||
+        row["Ubicación"] ||
+        "",
     }));
 
     setRows(procesados);
@@ -45,7 +52,6 @@ export default function App() {
 
       const data = await res.json();
 
-      // 🔥 Generar nuevo Excel con resultados
       const worksheet = XLSX.utils.json_to_sheet(data);
       const workbook = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(workbook, worksheet, "Resultados");
@@ -77,9 +83,7 @@ export default function App() {
         <p>Registros cargados: {rows.length}</p>
       )}
 
-      {mensaje && (
-        <p><b>{mensaje}</b></p>
-      )}
+      {mensaje && <p><b>{mensaje}</b></p>}
     </div>
   );
 }
