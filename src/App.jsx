@@ -7,7 +7,17 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [nombreArchivo, setNombreArchivo] = useState("");
 
-  // 🔥 Limpiar tildes dañadas
+  // 🔥 Normalizar texto (quita tildes BIEN)
+  const normalizar = (texto) => {
+    return texto
+      ?.toString()
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .trim();
+  };
+
+  // 🔥 Limpiar encoding roto (solo por seguridad)
   const limpiarTexto = (texto) => {
     if (!texto) return "";
     return texto
@@ -23,29 +33,24 @@ export default function App() {
       .trim();
   };
 
-  // 🔥 Obtener valor flexible (soporta tildes rotas y nombres variados)
+  // 🔥 Obtener valor flexible (NO depende de nombres exactos)
   const getValue = (row, posibles) => {
-    for (let key of Object.keys(row)) {
-      const cleanKey = key
-        .toLowerCase()
-        .replace(/Ã¡/g, "á")
-        .replace(/Ã©/g, "é")
-        .replace(/Ã­/g, "í")
-        .replace(/Ã³/g, "ó")
-        .replace(/Ãº/g, "ú")
-        .replace(/Ã±/g, "ñ")
-        .trim();
+    const keys = Object.keys(row);
+
+    for (let key of keys) {
+      const cleanKey = normalizar(key);
 
       for (let p of posibles) {
-        if (cleanKey.includes(p)) {
+        if (cleanKey.includes(normalizar(p))) {
           return row[key];
         }
       }
     }
+
     return "";
   };
 
-  // 📥 Procesar archivo
+  // 📥 Leer archivo
   const handleFile = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -56,11 +61,10 @@ export default function App() {
     try {
       const data = await file.arrayBuffer();
 
-      // 🔥 XLSX lee CSV y Excel correctamente
       const workbook = XLSX.read(data, { type: "array" });
       const sheet = workbook.Sheets[workbook.SheetNames[0]];
 
-      let json = XLSX.utils.sheet_to_json(sheet, {
+      const json = XLSX.utils.sheet_to_json(sheet, {
         defval: "",
         raw: false,
       });
@@ -70,26 +74,32 @@ export default function App() {
         return;
       }
 
-      // 🔥 MAPEO ROBUSTO
+      // 🔥 MAPEO SUPER ROBUSTO
       const procesados = json.map((row) => ({
-        numero: getValue(row, ["acii"]),
-        descripcion: limpiarTexto(getValue(row, ["descrip"])),
+        numero: getValue(row, ["acii", "no acii"]),
+        descripcion: limpiarTexto(
+          getValue(row, ["descripcion", "detalle"])
+        ),
         accion: limpiarTexto(
-          getValue(row, ["accion inmediata", "accion", "accion correctiva"])
+          getValue(row, [
+            "accion inmediata",
+            "accion correctiva",
+            "accion",
+          ])
         ),
         area: limpiarTexto(getValue(row, ["area"])),
       }));
 
       setRows(procesados);
-      setMensaje(`✅ ${procesados.length} registros cargados correctamente`);
+      setMensaje(`✅ ${procesados.length} registros cargados`);
 
     } catch (error) {
       console.error(error);
-      setMensaje(`❌ Error al leer archivo`);
+      setMensaje("❌ Error al leer archivo");
     }
   };
 
-  // 🤖 Evaluar IA
+  // 🤖 Evaluar IA (con batching)
   const evaluarIA = async () => {
     if (rows.length === 0) {
       setMensaje("❌ Primero sube un archivo");
