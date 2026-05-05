@@ -14,8 +14,9 @@ export default function App() {
     const json = XLSX.utils.sheet_to_json(sheet);
 
     const procesados = json.map((row) => ({
+      numero: row["No. ACII"],
       descripcion: row["Descripción"] || "",
-      accion: (row["Acción Inmediata"] || "").trim(),
+      accion: row["Acción Inmediata"] || "",
     }));
 
     setRows(procesados);
@@ -30,26 +31,20 @@ export default function App() {
 
     setMensaje("Analizando con IA...");
 
-    try {
-      const res = await fetch("/.netlify/functions/evaluar", {
-        method: "POST",
-        body: JSON.stringify({ registros: rows }),
-      });
+    const res = await fetch("/.netlify/functions/evaluar", {
+      method: "POST",
+      body: JSON.stringify({ registros: rows }),
+    });
 
-      const data = await res.json();
+    const data = await res.json();
 
-      // Crear Excel nuevo con resultados
-      const worksheet = XLSX.utils.json_to_sheet(data);
-      const workbook = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(workbook, worksheet, "Resultados");
+    const worksheet = XLSX.utils.json_to_sheet(data);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Resultados");
 
-      XLSX.writeFile(workbook, "acii_calificado.xlsx");
+    XLSX.writeFile(workbook, "acii_calificado.xlsx");
 
-      setMensaje("Archivo generado y descargado");
-    } catch (error) {
-      console.error(error);
-      setMensaje("Error al procesar el archivo");
-    }
+    setMensaje("Archivo generado y descargado");
   };
 
   return (
@@ -70,9 +65,7 @@ export default function App() {
         <p>Registros cargados: {rows.length}</p>
       )}
 
-      {mensaje && (
-        <p><b>{mensaje}</b></p>
-      )}
+      {mensaje && <p><b>{mensaje}</b></p>}
     </div>
   );
 }
