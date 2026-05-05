@@ -2,9 +2,8 @@ import { useState } from "react";
 import * as XLSX from "xlsx";
 
 export default function App() {
-  const [descripcion, setDescripcion] = useState("");
-  const [accion, setAccion] = useState("");
   const [rows, setRows] = useState([]);
+  const [mensaje, setMensaje] = useState("");
 
   const handleFile = async (e) => {
     const file = e.target.files[0];
@@ -14,8 +13,22 @@ export default function App() {
     const sheet = workbook.Sheets[workbook.SheetNames[0]];
     const json = XLSX.utils.sheet_to_json(sheet);
 
-    console.log(json);
-    setRows(json);
+    const procesados = json.map((row) => ({
+      descripcion: row["Descripción"],
+      accion: row["Acción Inmediata"],
+    }));
+
+    setRows(procesados);
+    setMensaje(""); // limpiar mensaje al subir nuevo archivo
+  };
+
+  const evaluarIA = () => {
+    if (rows.length === 0) {
+      setMensaje("Primero sube un archivo");
+      return;
+    }
+
+    setMensaje("Archivo listo para evaluar con IA");
   };
 
   return (
@@ -26,26 +39,18 @@ export default function App() {
 
       <br /><br />
 
-      <textarea
-        placeholder="Descripción"
-        value={descripcion}
-        onChange={(e) => setDescripcion(e.target.value)}
-      />
-
-      <br /><br />
-
-      <textarea
-        placeholder="Acción"
-        value={accion}
-        onChange={(e) => setAccion(e.target.value)}
-      />
+      <button onClick={evaluarIA}>
+        Evaluar con IA
+      </button>
 
       <br /><br />
 
       {rows.length > 0 && (
-        <div>
-          <p>Registros cargados: {rows.length}</p>
-        </div>
+        <p>Registros cargados: {rows.length}</p>
+      )}
+
+      {mensaje && (
+        <p><b>{mensaje}</b></p>
       )}
     </div>
   );
