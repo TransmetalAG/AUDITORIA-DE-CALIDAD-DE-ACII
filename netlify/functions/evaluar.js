@@ -9,14 +9,13 @@ Eres auditor de seguridad industrial.
 
 Evalúa este reporte ACII con estos criterios:
 
-1. Relacionada SISO (30%)
-2. Grupo específico (10%)
-3. Corrige (60%) o Informa (25%)
+- Relacionada SISO (0-30)
+- Grupo específico (0-10)
+- Corrige (0-60)
+- Informa (0-25)
 
-Devuelve SOLO JSON válido. No agregues texto adicional.
-No expliques nada.
+Devuelve SOLO JSON válido sin texto adicional:
 
-Formato exacto:
 {
   "relacionada": 0,
   "grupo": 0,
@@ -42,38 +41,30 @@ Acción: ${r.accion}
     };
 
     try {
-      const response = await fetch("https://api.openai.com/v1/chat/completions", {
+      const response = await fetch("https://api.openai.com/v1/responses", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           "Authorization": `Bearer ${process.env.OPENAI_API_KEY}`,
         },
         body: JSON.stringify({
-          model: "gpt-4o-mini",
-          messages: [{ role: "user", content: prompt }],
-          temperature: 0.2,
+          model: "gpt-4.1-mini",
+          input: prompt,
         }),
       });
 
       const data = await response.json();
 
-      let texto = data.choices?.[0]?.message?.content || "";
+      const texto = data.output?.[0]?.content?.[0]?.text || "";
 
-      // 🔥 EXTRAER SOLO JSON (aunque venga con texto extra)
       const jsonMatch = texto.match(/\{[\s\S]*\}/);
 
       if (jsonMatch) {
-        try {
-          evaluacion = JSON.parse(jsonMatch[0]);
-        } catch (e) {
-          console.error("Error parsing JSON limpio", e);
-        }
-      } else {
-        console.error("No se encontró JSON en respuesta IA:", texto);
+        evaluacion = JSON.parse(jsonMatch[0]);
       }
 
     } catch (error) {
-      console.error("Error llamando IA:", error);
+      console.error("Error IA:", error);
     }
 
     resultados.push({
