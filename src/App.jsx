@@ -11,25 +11,21 @@ export default function App() {
 
     const workbook = XLSX.read(data);
     const sheet = workbook.Sheets[workbook.SheetNames[0]];
-    const json = XLSX.utils.sheet_to_json(sheet);
 
-    // 🔍 DEBUG (puedes borrarlo luego)
-    console.log("Columnas detectadas:", Object.keys(json[0]));
+    // 🔥 Lectura robusta del Excel
+    const json = XLSX.utils.sheet_to_json(sheet, {
+      defval: "",
+      raw: false,
+    });
+
+    // 🔍 DEBUG (puedes borrar luego)
+    console.log("Fila ejemplo:", json[0]);
 
     const procesados = json.map((row) => ({
-      numero: row["No. ACII"] || "",
-      descripcion: row["Descripción"] || row["Descripcion"] || "",
-      accion:
-        row["Acción Inmediata"] ||
-        row["Acción Inmec"] ||
-        row["Accion"] ||
-        "",
-      area:
-        row["Área"] ||
-        row["Area"] ||
-        row["Área de trabajo"] ||
-        row["Ubicación"] ||
-        "",
+      numero: (row["No. ACII"] || "").toString().trim(),
+      descripcion: (row["Descripción"] || "").toString().trim(),
+      accion: (row["Acción Inmediata"] || "").toString().trim(),
+      area: (row["Área"] || "").toString().trim(),
     }));
 
     setRows(procesados);
@@ -52,6 +48,7 @@ export default function App() {
 
       const data = await res.json();
 
+      // 🔥 Generar Excel con resultados
       const worksheet = XLSX.utils.json_to_sheet(data);
       const workbook = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(workbook, worksheet, "Resultados");
@@ -83,7 +80,9 @@ export default function App() {
         <p>Registros cargados: {rows.length}</p>
       )}
 
-      {mensaje && <p><b>{mensaje}</b></p>}
+      {mensaje && (
+        <p><b>{mensaje}</b></p>
+      )}
     </div>
   );
 }
