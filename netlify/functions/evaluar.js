@@ -1,194 +1,151 @@
 exports.handler = async function (event) {
-  // Manejo OPTIONS para CORS (necesario para algunas configuraciones)
-  if (event.httpMethod === "OPTIONS") {
-    return {
-      statusCode: 204,
-      headers: {
-        "Access-Control-Allow-Origin": "*",
-        "Access-Control-Allow-Headers": "Content-Type",
-        "Access-Control-Allow-Methods": "POST, OPTIONS",
-      },
-    };
-  }
-
   try {
-    // Validar que el body existe
-    if (!event.body) {
-      throw new Error("No se recibieron datos");
-    }
-
     const { registros } = JSON.parse(event.body);
 
-    // Validar que hay registros
-    if (!registros || registros.length === 0) {
-      throw new Error("No hay registros para evaluar");
-    }
-
-    console.log(`Procesando ${registros.length} registros`);
-
-    // Construir el prompt para OpenAI
     const prompt = `
-Eres un auditor experto en seguridad industrial (SISO).
+Eres auditor experto en seguridad industrial (SISO).
 
-Evalúa estos reportes ACII y devuelve SOLO un array JSON válido, sin texto adicional.
+Evalúa estos reportes ACII con estas reglas ESTRICTAS:
 
-REGLAS ESTRICTAS:
-- "relacionada" SOLO puede ser 0 o 30
-- "grupo" SOLO puede ser 0 o 10  
-- "corrige" SOLO puede ser 0 o 60
-- "informa" SOLO puede ser 0 o 25
+- Relacionada SISO: SOLO 0 o 30
+- Grupo específico: SOLO 0 o 10
+- Corrige: SOLO 0 o 60
+- Informa: SOLO 0 o 25
 
-REGLAS IMPORTANTES:
-- "corrige" e "informa" NO pueden estar ambos activos
-- Si "corrige" = 60, entonces "informa" debe ser 0
-- Si "informa" = 25, entonces "corrige" debe ser 0
+IMPORTANTE:
+- Corrige e Informa NO pueden estar ambos activos
+- Si corrige = 60 → informa = 0
+- Si informa = 25 → corrige = 0
 
-Formato de respuesta (array de objetos):
+Devuelve ÚNICAMENTE un JSON válido (sin texto adicional):
+
 [
   {
     "relacionada": 0,
     "grupo": 0,
     "corrige": 0,
     "informa": 0,
-    "comentario": "breve justificación"
+    "comentario": ""
   }
 ]
 
-REPORTES A EVALUAR:
-${JSON.stringify(registros, null, 2)}
+REPORTES:
+${JSON.stringify(registros)}
 `;
 
-    console.log("Enviando a OpenAI...");
-
-    // Llamar a OpenAI con el endpoint correcto
-    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+    const response = await fetch("https://api.openai.com/v1/responses", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Authorization": `Bearer ${process.env.OPENAI_API_KEY}`,
+        Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
       },
       body: JSON.stringify({
         model: "gpt-4o-mini",
-        messages: [
-          {
-            role: "user",
-            content: prompt,
-          },
-        ],
-        temperature: 0.1,
-        response_format: { type: "json_object" },
+        input: prompt,
       }),
     });
 
-    // Verificar si la respuesta de OpenAI es exitosa
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error("Error OpenAI:", response.status, errorText);
-      throw new Error(`OpenAI error: ${response.status}`);
-    }
-
     const data = await response.json();
-    const contenido = data.choices?.[0]?.message?.content;
 
-    if (!contenido) {
-      throw new Error("OpenAI no devolvió contenido");
+    // 🔍 DEBUG (clave)
+    console.log("RESPUESTA OPENAI:", JSON.stringify(data));
+
+    // 🔥 EXTRAER TEXTO
+    let texto = "";
+
+    if (data.output) {
+      data.output.forEach((item) => {
+        item.content?.forEach((c) => {
+          if (c.text) texto += c.text;
+        });
+      });
     }
 
-    console.log("Respuesta OpenAI recibida");
+    console.log("TEXTO IA:", texto);
 
-    // Extraer el JSON de la respuesta
+    // 🔥 EXTRAER JSON
     let evaluaciones = [];
-    
+
     try {
-      // Intentar parsear directamente
-      const parsed = JSON.parse(contenido);
-      
-      // Si es un objeto con array dentro
-      if (parsed.evaluaciones && Array.isArray(parsed.evaluaciones)) {
-        evaluaciones = parsed.evaluaciones;
-      }
-      // Si es un array directo
-      else if (Array.isArray(parsed)) {
-        evaluaciones = parsed;
-      }
-      // Si es un objeto, convertirlo a array
-      else if (typeof parsed === "object" && parsed !== null) {
-        evaluaciones = [parsed];
+      const match = texto.match(/\[[\s\S]*\]/);
+      if (match) {
+        evaluaciones = JSON.parse(match[0]);
       }
     } catch (e) {
-      // Si falla, buscar array con regex
-      const jsonMatch = contenido.match(/\[[\s\S]*\]/);
-      if (jsonMatch) {
-        try {
-          evaluaciones = JSON.parse(jsonMatch[0]);
-        } catch (e2) {
-          console.error("Error parseando JSON:", e2);
-          evaluaciones = [];
-        }
-      }
+      console.log("Error parseando JSON:", e);
     }
 
-    console.log(`Se recibieron ${evaluaciones.length} evaluaciones`);
+    // 🔥 SI IA FALLA → FALLBACK INTELIGENTE
+    if (evaluaciones.length === 0) {
+      console.log("Usando fallback manual");
 
-    // Construir resultados asegurando que haya una evaluación por cada registro
-    const resultados = registros.map((registro, index) => {
-      const evaluacion = evaluaciones[index] || {};
-      
-      // Validar y asignar valores según las reglas
-      let relacionada = evaluacion.relacionada === 30 ? 30 : 0;
-      let grupo = evaluacion.grupo === 10 ? 10 : 0;
-      let corrige = evaluacion.corrige === 60 ? 60 : 0;
-      let informa = evaluacion.informa === 25 ? 25 : 0;
-      
-      // Regla: corrige e informa no pueden estar ambos activos
-      if (corrige === 60 && informa === 25) {
-        // Por defecto, priorizar corrige
-        informa = 0;
-      }
-      
+      evaluaciones = registros.map((r) => {
+        const desc = (r.descripcion || "").toLowerCase();
+        const acc = (r.accion || "").toLowerCase();
+
+        let relacionada =
+          desc.includes("fuga") ||
+          desc.includes("riesgo") ||
+          desc.includes("seguridad")
+            ? 30
+            : 0;
+
+        let grupo =
+          desc.includes("colaborador") ||
+          desc.includes("operador")
+            ? 10
+            : 0;
+
+        let corrige = acc.includes("se corrige") || acc.includes("se ajusta") ? 60 : 0;
+        let informa = acc.includes("reporta") || acc.includes("informa") ? 25 : 0;
+
+        if (corrige === 60) informa = 0;
+
+        return {
+          relacionada,
+          grupo,
+          corrige,
+          informa,
+          comentario: "Evaluación fallback",
+        };
+      });
+    }
+
+    // 🔥 ARMAR RESULTADO FINAL
+    const resultados = registros.map((r, i) => {
+      const e = evaluaciones[i] || {};
+
+      const relacionada = e.relacionada === 30 ? 30 : 0;
+      const grupo = e.grupo === 10 ? 10 : 0;
+      const corrige = e.corrige === 60 ? 60 : 0;
+      const informa = e.informa === 25 ? 25 : 0;
+
       const total = relacionada + grupo + corrige + informa;
-      
+
       return {
-        "No. ACII": registro.numero || "",
-        "Descripción": registro.descripcion || "",
-        "Acción Inmediata": registro.accion || "",
+        "No. ACII": r.numero,
+        "Descripción": r.descripcion,
+        "Acción Inmediata": r.accion,
         "Relacionada SISO (30)": relacionada,
         "Grupo específico (10)": grupo,
         "Corrige (60)": corrige,
         "Informa (25)": informa,
         "Total": total,
-        "Área": registro.area || "",
-        "Comentario IA": evaluacion.comentario || "Sin comentario",
+        "Área": r.area,
+        "Comentario IA": e.comentario || "",
       };
     });
 
-    console.log("Resultados procesados correctamente");
-
-    // Devolver respuesta exitosa
     return {
       statusCode: 200,
-      headers: {
-        "Access-Control-Allow-Origin": "*",
-        "Content-Type": "application/json",
-      },
       body: JSON.stringify(resultados),
     };
-
   } catch (error) {
-    console.error("ERROR EN LA FUNCIÓN:", error.message);
-    console.error("Stack:", error.stack);
-    
-    // Devolver respuesta de error detallada
+    console.error("ERROR GENERAL:", error);
+
     return {
       statusCode: 500,
-      headers: {
-        "Access-Control-Allow-Origin": "*",
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ 
-        error: error.message,
-        details: "Revisa los logs de Netlify para más información"
-      }),
+      body: JSON.stringify({ error: "Error IA" }),
     };
   }
 };
