@@ -31,34 +31,49 @@ exports.handler = async function (event) {
       accion: r.accion,
     }));
 
-    // 🔥 PROMPT MEJORADO (ESTRICTO)
-    const prompt = `Eres un auditor SISO experto en seguridad industrial.
+    // 🔥 PROMPT MEJORADO (INTELIGENTE)
+    const prompt = `Eres un auditor SISO experto en seguridad industrial en planta.
 
-Evalúa cada reporte con criterio profesional.
+Debes evaluar cada reporte con criterio profesional REAL de seguridad.
 
+========================
 CRITERIOS:
 
 1. relacionada:
-- 30 SOLO si hay riesgo real de seguridad
-- 0 si es leve (orden, limpieza, mejora menor)
+- 30 si existe riesgo REAL o POTENCIAL de accidente
+- Incluye riesgos IMPLÍCITOS (aunque no se mencione accidente)
+- Ejemplos que SI son SISO:
+  - herramienta inadecuada
+  - cable expuesto
+  - fuga, presión, calor
+  - mala práctica operativa
+  - equipo defectuoso
+- 0 SOLO si es completamente administrativo o mejora leve sin impacto en seguridad
 
 2. grupo:
-- 10 si menciona colaborador u operador
+- 10 si menciona operador, colaborador o persona específica
 - 0 si es general
 
 3. corrige:
-- 60 si corrige directamente
-- 0 si no
+- 60 si la acción elimina o corrige el riesgo directamente
+- Ej: reparar, cambiar, detener, ajustar, corregir
+- 0 si no corrige
 
 4. informa:
-- 25 si solo reporta
+- 25 si solo reporta, comunica o escala
+- Ej: "se informa", "se avisa", "se traslada"
 - 0 si no
 
-REGLAS:
-- Nunca corrige=60 e informa=25 juntos
-- No todos los reportes son SISO
+========================
+REGLAS OBLIGATORIAS:
 
-RESPONDE SOLO JSON válido.
+- Nunca corrige=60 e informa=25 juntos
+- Si hay corrección real → usar corrige (NO informa)
+- Si solo se comunica → usar informa
+- No todos los reportes son SISO, pero si hay duda → considerar riesgo potencial
+
+========================
+RESPONDE SOLO JSON válido
 
 FORMATO:
 [
@@ -67,12 +82,14 @@ FORMATO:
     "grupo": 10,
     "corrige": 0,
     "informa": 25,
-    "comentario": "Justificación clara"
+    "comentario": "Justificación clara y técnica"
   }
 ]
 
+========================
 REPORTES:
-${JSON.stringify(reportesParaIA, null, 2)}`;
+${JSON.stringify(reportesParaIA, null, 2)}
+`;
 
     // 🔹 Llamada OpenAI
     const response = await fetch("https://api.openai.com/v1/chat/completions", {
@@ -86,7 +103,7 @@ ${JSON.stringify(reportesParaIA, null, 2)}`;
         messages: [
           {
             role: "system",
-            content: "Responde solo JSON válido.",
+            content: "Responde únicamente con JSON válido. No agregues texto extra.",
           },
           {
             role: "user",
@@ -160,6 +177,7 @@ ${JSON.stringify(reportesParaIA, null, 2)}`;
       let corrige = ev.corrige === 60 ? 60 : 0;
       let informa = ev.informa === 25 ? 25 : 0;
 
+      // 🔥 regla dura
       if (corrige === 60 && informa === 25) {
         informa = 0;
       }
