@@ -28,7 +28,7 @@ export default function App() {
       return;
     }
 
-    setMensaje("Archivo listo para evaluar con IA");
+    setMensaje(`Analizando ${rows.length} registros...`);
   };
 
   return (
