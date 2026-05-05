@@ -13,10 +13,16 @@ export default function App() {
     const sheet = workbook.Sheets[workbook.SheetNames[0]];
     const json = XLSX.utils.sheet_to_json(sheet);
 
+    // 🔥 Lectura completa del Excel
     const procesados = json.map((row) => ({
-      numero: row["No. ACII"],
-      descripcion: row["Descripción"] || "",
-      accion: row["Acción Inmediata"] || "",
+      numero: row["No. ACII"] || "",
+      descripcion: row["Descripción"] || row["Descripcion"] || "",
+      accion:
+        row["Acción Inmediata"] ||
+        row["Acción Inmec"] ||
+        row["Accion"] ||
+        "",
+      area: row["Área"] || row["Area"] || "",
     }));
 
     setRows(procesados);
@@ -31,20 +37,26 @@ export default function App() {
 
     setMensaje("Analizando con IA...");
 
-    const res = await fetch("/.netlify/functions/evaluar", {
-      method: "POST",
-      body: JSON.stringify({ registros: rows }),
-    });
+    try {
+      const res = await fetch("/.netlify/functions/evaluar", {
+        method: "POST",
+        body: JSON.stringify({ registros: rows }),
+      });
 
-    const data = await res.json();
+      const data = await res.json();
 
-    const worksheet = XLSX.utils.json_to_sheet(data);
-    const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, "Resultados");
+      // 🔥 Generar nuevo Excel con resultados
+      const worksheet = XLSX.utils.json_to_sheet(data);
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, "Resultados");
 
-    XLSX.writeFile(workbook, "acii_calificado.xlsx");
+      XLSX.writeFile(workbook, "acii_calificado.xlsx");
 
-    setMensaje("Archivo generado y descargado");
+      setMensaje("Archivo generado y descargado");
+    } catch (error) {
+      console.error(error);
+      setMensaje("Error al procesar el archivo");
+    }
   };
 
   return (
@@ -65,7 +77,9 @@ export default function App() {
         <p>Registros cargados: {rows.length}</p>
       )}
 
-      {mensaje && <p><b>{mensaje}</b></p>}
+      {mensaje && (
+        <p><b>{mensaje}</b></p>
+      )}
     </div>
   );
 }
