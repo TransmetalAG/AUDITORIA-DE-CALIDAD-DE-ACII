@@ -7,7 +7,7 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [nombreArchivo, setNombreArchivo] = useState("");
 
-  // 🔥 Normalizar texto (quita tildes BIEN)
+  // 🔥 Normalizar texto
   const normalizar = (texto) => {
     return texto
       ?.toString()
@@ -17,7 +17,7 @@ export default function App() {
       .trim();
   };
 
-  // 🔥 Limpiar encoding roto (solo por seguridad)
+  // 🔥 Limpiar encoding roto
   const limpiarTexto = (texto) => {
     if (!texto) return "";
     return texto
@@ -33,7 +33,7 @@ export default function App() {
       .trim();
   };
 
-  // 🔥 Obtener valor flexible (NO depende de nombres exactos)
+  // 🔥 Obtener valor flexible
   const getValue = (row, posibles) => {
     const keys = Object.keys(row);
 
@@ -74,7 +74,6 @@ export default function App() {
         return;
       }
 
-      // 🔥 MAPEO SUPER ROBUSTO
       const procesados = json.map((row) => ({
         numero: getValue(row, ["acii", "no acii"]),
         descripcion: limpiarTexto(
@@ -99,7 +98,7 @@ export default function App() {
     }
   };
 
-  // 🤖 Evaluar IA (con batching)
+  // 🤖 Evaluar IA
   const evaluarIA = async () => {
     if (rows.length === 0) {
       setMensaje("❌ Primero sube un archivo");
@@ -107,7 +106,7 @@ export default function App() {
     }
 
     setLoading(true);
-    setMensaje("🤖 Procesando con IA...");
+    setMensaje("🤖 Evaluando calidad de ACII...");
 
     try {
       const chunkSize = 20;
@@ -136,11 +135,9 @@ export default function App() {
 
         resultadosFinales = [...resultadosFinales, ...data];
 
-        // 🔥 evitar 429
         await new Promise((r) => setTimeout(r, 400));
       }
 
-      // 📊 Exportar Excel
       const worksheet = XLSX.utils.json_to_sheet(resultadosFinales);
       const workbook = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(workbook, worksheet, "Resultados");
@@ -166,7 +163,9 @@ export default function App() {
 
   return (
     <div style={{ padding: 20, maxWidth: 800, margin: "0 auto" }}>
-      <h1>📋 Auditoría ACII con IA</h1>
+      
+      {/* 🔥 NUEVO TÍTULO */}
+      <h1>📊 Auditoría de Calidad de ACII</h1>
 
       <input
         type="file"
@@ -187,8 +186,9 @@ export default function App() {
 
       <br />
 
+      {/* 🔥 BOTÓN CAMBIADO */}
       <button onClick={evaluarIA} disabled={loading || rows.length === 0}>
-        {loading ? "Procesando..." : "Evaluar con IA"}
+        {loading ? "Procesando..." : "Evaluar Calidad de ACII"}
       </button>
 
       <br /><br />
