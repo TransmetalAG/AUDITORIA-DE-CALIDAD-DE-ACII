@@ -37,37 +37,34 @@ export const handler = async (event) => {
       accion: r.accion || "",
     }));
 
-    // 🔥 PROMPT INTELIGENTE (NO TAN ESTRICTO)
+    // 🔥 PROMPT MEJORADO
     const prompt = `
 Eres un auditor SISO experto en seguridad industrial en planta.
 
-Evalúa cada reporte con criterio REAL (no seas demasiado estricto).
+Evalúa con criterio REAL, no seas excesivamente estricto.
 
 CRITERIOS:
 
 1. relacionada:
-- 30 si hay riesgo REAL o POTENCIAL
-- Incluye riesgos implícitos (herramientas malas, presión, golpes, cables, etc)
-- 0 solo si es administrativo sin impacto en seguridad
+- 30 si hay riesgo real o potencial (incluye implícitos)
+- Ej: herramientas malas, presión, golpes, cables, etc
+- 0 solo si es administrativo
 
 2. grupo:
-- 10 si menciona operador, colaborador o persona
-- 0 si es general
+- 10 si afecta a personas o área operativa (aunque no se mencione persona)
+- 0 solo si es completamente aislado
 
 3. corrige:
-- 60 si la acción corrige directamente el riesgo
-- Ej: reparar, ajustar, detener, cambiar
+- 60 si corrige directamente el riesgo
 
 4. informa:
-- 25 si solo comunica o reporta
-- Ej: "se reporta", "se avisa", "se informa"
+- 25 si solo comunica
 
 REGLAS:
-- Nunca corrige=60 e informa=25 juntos
-- Si hay duda → asumir riesgo (30)
-- Si dice "se reporta" → informa = 25
+- Nunca corrige e informa juntos
+- Si hay duda → asumir riesgo
 
-RESPONDE SOLO JSON válido
+RESPONDE SOLO JSON
 
 FORMATO:
 [
@@ -88,19 +85,15 @@ ${JSON.stringify(reportes, null, 2)}
     const completion = await client.chat.completions.create({
       model: "gpt-4o-mini",
       messages: [
-        {
-          role: "system",
-          content: "Responde únicamente JSON válido. Sin texto adicional."
-        },
-        {
-          role: "user",
-          content: prompt
-        }
+        { role: "system", content: "Responde solo JSON válido." },
+        { role: "user", content: prompt }
       ],
-      temperature: 0.2,
+      temperature: 0,
     });
 
     let contenido = completion.choices[0].message.content.trim();
+
+    console.log("RAW IA:", contenido);
 
     // 🔹 limpiar markdown
     contenido = contenido.replace(/```json|```/g, "").trim();
@@ -109,27 +102,29 @@ ${JSON.stringify(reportes, null, 2)}
 
     try {
       evaluaciones = JSON.parse(contenido);
-    } catch (e) {
-      console.error("Error parseando JSON:", e);
-
+    } catch {
       const match = contenido.match(/\[[\s\S]*\]/);
       if (match) {
         evaluaciones = JSON.parse(match[0]);
       }
     }
 
-    // 🔹 fallback
+    // 🔹 fallback seguro
     if (!Array.isArray(evaluaciones)) {
       evaluaciones = registros.map(() => ({
         relacionada: 0,
         grupo: 0,
         corrige: 0,
         informa: 0,
-        comentario: "No evaluado",
+        comentario: "Fallback IA"
       }));
     }
 
-    // 🔹 resultado final
+    // 🔥 PALABRAS CLAVE
+    const palabrasInforma = ["reporta", "reporto", "avisa", "informa", "comunica", "traslada"];
+    const palabrasCorrige = ["repara", "corrige", "ajusta", "cambia", "detiene", "se paro"];
+
+    // 🔹 resultado final (HÍBRIDO)
     const resultados = registros.map((r, i) => {
       const ev = evaluaciones[i] || {};
 
@@ -138,10 +133,32 @@ ${JSON.stringify(reportes, null, 2)}
       let corrige = ev.corrige === 60 ? 60 : 0;
       let informa = ev.informa === 25 ? 25 : 0;
 
-      // regla dura
-      if (corrige === 60 && informa === 25) {
+      const accion = (r.accion || "").toLowerCase();
+
+      // 🔥 LOGICA AUTOMATICA
+
+      // 1. Si hay riesgo → grupo = 10
+      if (relacionada === 30) {
+        grupo = 10;
+      }
+
+      // 2. Detectar "informa"
+      if (palabrasInforma.some(p => accion.includes(p))) {
+        informa = 25;
+      }
+
+      // 3. Detectar "corrige"
+      if (palabrasCorrige.some(p => accion.includes(p))) {
+        corrige = 60;
         informa = 0;
       }
+
+      // 4. regla dura
+      if (corrige === 60) {
+        informa = 0;
+      }
+
+      const total = relacionada + grupo + corrige + informa;
 
       return {
         "No. ACII": r.numero || "",
@@ -151,7 +168,7 @@ ${JSON.stringify(reportes, null, 2)}
         "Grupo específico (10)": grupo,
         "Corrige (60)": corrige,
         "Informa (25)": informa,
-        "Total": relacionada + grupo + corrige + informa,
+        "Total": total,
         "Área": r.area || "",
         "Comentario IA": ev.comentario || "",
       };
