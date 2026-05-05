@@ -7,18 +7,18 @@ export default function App() {
 
   const handleFile = async (e) => {
     const file = e.target.files[0];
-    const data = await file.arrayBuffer();
 
-    const workbook = XLSX.read(data);
+    // 🔥 Leer archivo como texto (corrige tildes)
+    const text = await file.text();
+
+    const workbook = XLSX.read(text, { type: "string" });
     const sheet = workbook.Sheets[workbook.SheetNames[0]];
 
-    // 🔥 Lectura robusta del Excel
     const json = XLSX.utils.sheet_to_json(sheet, {
       defval: "",
       raw: false,
     });
 
-    // 🔍 DEBUG (puedes borrar luego)
     console.log("Fila ejemplo:", json[0]);
 
     const procesados = json.map((row) => ({
@@ -48,7 +48,6 @@ export default function App() {
 
       const data = await res.json();
 
-      // 🔥 Generar Excel con resultados
       const worksheet = XLSX.utils.json_to_sheet(data);
       const workbook = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(workbook, worksheet, "Resultados");
@@ -80,9 +79,7 @@ export default function App() {
         <p>Registros cargados: {rows.length}</p>
       )}
 
-      {mensaje && (
-        <p><b>{mensaje}</b></p>
-      )}
+      {mensaje && <p><b>{mensaje}</b></p>}
     </div>
   );
 }
