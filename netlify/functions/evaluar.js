@@ -19,133 +19,122 @@ export const handler = async (event) => {
   }
 
   try {
-    const { registros } = JSON.parse(event.body || "{}");
-
-    if (!registros || registros.length === 0) {
-      throw new Error("No hay registros");
+    if (!event.body) {
+      throw new Error("No se recibieron datos");
     }
 
-    console.log(`Procesando ${registros.length}`);
+    const { registros } = JSON.parse(event.body);
 
-    // 🔥 NORMALIZADOR
-    const normalizar = (t) =>
-      (t || "")
-        .toLowerCase()
-        .normalize("NFD")
-        .replace(/[\u0300-\u036f]/g, "");
+    if (!registros || registros.length === 0) {
+      throw new Error("No hay registros para evaluar");
+    }
 
-    // 🔥 CATEGORÍAS DE RIESGO
-    const categorias = [
-      ["arnes","altura","linea de vida","enganchar"],
-      ["cable","electrico","voltaje"],
-      ["prensa","atrap","golpe","movimiento"],
-      ["rebaba","filo","corte"],
-      ["fuga","presion","hidraul","sello"],
-      ["caliente","horno","temperatura"],
-      ["herramienta","inadecuada"]
-    ];
+    const reportes = registros.map((r, i) => ({
+      id: i,
+      descripcion: r.descripcion || "",
+      accion: r.accion || "",
+    }));
 
-    const palabrasInforma = ["report","inform","avis","comunic","traslad"];
-    const palabrasCorrige = ["repar","corrig","ajust","cambi","deten","solucion"];
-
-    // 🔥 PRE-EVALUACIÓN (REGLAS)
-    const base = registros.map((r) => {
-
-      const desc = normalizar(r.descripcion);
-      const acc = normalizar(r.accion);
-
-      let relacionada = 0;
-      let grupo = 0;
-      let corrige = 0;
-      let informa = 0;
-
-      // 🔴 RIESGO
-      for (let cat of categorias) {
-        if (cat.some(p => desc.includes(p))) {
-          relacionada = 30;
-          grupo = 10;
-          break;
-        }
-      }
-
-      // 🟡 INFORMAR
-      if (palabrasInforma.some(p => acc.includes(p))) {
-        informa = 25;
-      }
-
-      // 🟢 CORREGIR
-      if (palabrasCorrige.some(p => acc.includes(p))) {
-        corrige = 60;
-        informa = 0;
-      }
-
-      return { relacionada, grupo, corrige, informa };
-    });
-
-    // 🔥 IA SOLO PARA COMPLEMENTAR
     const prompt = `
 Eres auditor SISO.
 
-Ajusta SOLO si es necesario.
+PRIORIDAD MÁXIMA:
+- Trabajo en altura sin arnés = riesgo crítico
+- Equipos defectuosos = riesgo
+- Fugas, presión, electricidad = riesgo
+
+CRITERIOS:
+- relacionada: 30 si hay riesgo real o potencial
+- grupo: 10 si afecta personas o área
+- corrige: 60 si corrige
+- informa: 25 si solo comunica
 
 REGLAS:
-- Si hay riesgo → relacionada = 30
-- Si hay riesgo → grupo = 10
-- Si corrige → corrige = 60
-- Si solo comunica → informa = 25
-- Nunca corrige + informa juntos
+- Nunca corrige e informa juntos
+- Si hay duda → relacionada = 30
 
-RESPONDE SOLO JSON.
+RESPONDE SOLO JSON
 
-DATOS:
-${JSON.stringify(registros.map((r,i)=>({
-  descripcion: r.descripcion,
-  accion: r.accion,
-  base: base[i]
-})), null, 2)}
+REPORTES:
+${JSON.stringify(reportes, null, 2)}
 `;
+
+    const completion = await client.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        { role: "system", content: "Responde solo JSON válido." },
+        { role: "user", content: prompt }
+      ],
+      temperature: 0,
+    });
+
+    let contenido = completion.choices[0].message.content.trim();
+
+    contenido = contenido.replace(/```json|```/g, "").trim();
 
     let evaluaciones = [];
 
     try {
-      const completion = await client.chat.completions.create({
-        model: "gpt-4o-mini",
-        messages: [
-          { role: "system", content: "Responde SOLO JSON" },
-          { role: "user", content: prompt }
-        ],
-        temperature: 0,
-      });
-
-      let contenido = completion.choices[0].message.content;
-
-      contenido = contenido.replace(/```json|```/g, "");
-
-      try {
-        evaluaciones = JSON.parse(contenido);
-      } catch {
-        const match = contenido.match(/\[[\s\S]*\]/);
-        if (match) evaluaciones = JSON.parse(match[0]);
+      evaluaciones = JSON.parse(contenido);
+    } catch {
+      const match = contenido.match(/\[[\s\S]*\]/);
+      if (match) {
+        evaluaciones = JSON.parse(match[0]);
       }
-
-    } catch (e) {
-      console.log("IA falló, usando solo reglas");
     }
 
-    // 🔥 RESULTADO FINAL
+    if (!Array.isArray(evaluaciones)) {
+      evaluaciones = registros.map(() => ({
+        relacionada: 0,
+        grupo: 0,
+        corrige: 0,
+        informa: 0,
+        comentario: "Fallback IA"
+      }));
+    }
+
+    const palabrasInforma = ["report", "inform", "avis", "comunic", "traslad"];
+    const palabrasCorrige = ["repar", "corrig", "ajust", "cambi", "deten", "solucion"];
+
     const resultados = registros.map((r, i) => {
 
-      const b = base[i];
-      const ia = evaluaciones[i] || {};
+      const ev = evaluaciones[i] || {};
 
-      let relacionada = ia.relacionada ?? b.relacionada;
-      let grupo = ia.grupo ?? b.grupo;
-      let corrige = ia.corrige ?? b.corrige;
-      let informa = ia.informa ?? b.informa;
+      let relacionada = ev.relacionada === 30 ? 30 : 0;
+      let grupo = ev.grupo === 10 ? 10 : 0;
+      let corrige = ev.corrige === 60 ? 60 : 0;
+      let informa = ev.informa === 25 ? 25 : 0;
 
-      // 🔥 REGLAS FINALES (ANTI-ERROR IA)
-      if (relacionada === 30) grupo = 10;
-      if (corrige === 60) informa = 0;
+      const texto = (r.descripcion || "").toLowerCase();
+      const accion = (r.accion || "").toLowerCase();
+
+      // 🔥 REGLA CRÍTICA (NO FALLA NUNCA)
+      if (
+        texto.includes("arnes") ||
+        texto.includes("altura") ||
+        texto.includes("linea de vida")
+      ) {
+        relacionada = 30;
+        grupo = 10;
+      }
+
+      // 🔥 REGLA GENERAL
+      if (relacionada === 30) {
+        grupo = 10;
+      }
+
+      if (palabrasInforma.some(p => accion.includes(p))) {
+        informa = 25;
+      }
+
+      if (palabrasCorrige.some(p => accion.includes(p))) {
+        corrige = 60;
+        informa = 0;
+      }
+
+      if (corrige === 60) {
+        informa = 0;
+      }
 
       const total = relacionada + grupo + corrige + informa;
 
@@ -159,7 +148,7 @@ ${JSON.stringify(registros.map((r,i)=>({
         "Informa (25)": informa,
         "Total": total,
         "Área": r.area || "",
-        "Comentario IA": ia.comentario || "Evaluado con reglas + IA",
+        "Comentario IA": ev.comentario || "",
       };
     });
 
@@ -172,15 +161,18 @@ ${JSON.stringify(registros.map((r,i)=>({
       body: JSON.stringify(resultados),
     };
 
-  } catch (err) {
-    console.error(err);
+  } catch (error) {
+    console.error("ERROR:", error);
 
     return {
       statusCode: 500,
       headers: {
         "Access-Control-Allow-Origin": "*",
+        "Content-Type": "application/json",
       },
-      body: JSON.stringify({ error: err.message }),
+      body: JSON.stringify({
+        error: error.message,
+      }),
     };
   }
 };
