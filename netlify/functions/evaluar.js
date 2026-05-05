@@ -29,29 +29,31 @@ export const handler = async (event) => {
       throw new Error("No hay registros para evaluar");
     }
 
+    console.log(`Procesando ${registros.length} registros`);
+
     const reportes = registros.map((r, i) => ({
       id: i,
       descripcion: r.descripcion || "",
       accion: r.accion || "",
     }));
 
+    // 🔥 PROMPT MEJORADO (más claro pero sin sobrecargar)
     const prompt = `
-Eres auditor SISO.
+Eres auditor SISO en planta industrial.
 
-PRIORIDAD MÁXIMA:
-- Trabajo en altura sin arnés = riesgo crítico
-- Equipos defectuosos = riesgo
-- Fugas, presión, electricidad = riesgo
+Evalúa con criterio REAL.
+
+PRIORIDAD:
+- Si hay riesgo físico → relacionada = 30
+- Si hay duda → asumir riesgo
 
 CRITERIOS:
-- relacionada: 30 si hay riesgo real o potencial
-- grupo: 10 si afecta personas o área
-- corrige: 60 si corrige
-- informa: 25 si solo comunica
+- grupo = 10 si afecta personas o área operativa
+- corrige = 60 si corrige
+- informa = 25 si solo comunica
 
 REGLAS:
 - Nunca corrige e informa juntos
-- Si hay duda → relacionada = 30
 
 RESPONDE SOLO JSON
 
@@ -59,6 +61,7 @@ REPORTES:
 ${JSON.stringify(reportes, null, 2)}
 `;
 
+    // 🔹 OpenAI
     const completion = await client.chat.completions.create({
       model: "gpt-4o-mini",
       messages: [
@@ -70,6 +73,9 @@ ${JSON.stringify(reportes, null, 2)}
 
     let contenido = completion.choices[0].message.content.trim();
 
+    console.log("RAW IA:", contenido);
+
+    // 🔹 limpiar markdown
     contenido = contenido.replace(/```json|```/g, "").trim();
 
     let evaluaciones = [];
@@ -83,6 +89,7 @@ ${JSON.stringify(reportes, null, 2)}
       }
     }
 
+    // 🔹 fallback seguro
     if (!Array.isArray(evaluaciones)) {
       evaluaciones = registros.map(() => ({
         relacionada: 0,
@@ -93,9 +100,37 @@ ${JSON.stringify(reportes, null, 2)}
       }));
     }
 
+    // 🔥 PALABRAS CLAVE (flexibles)
     const palabrasInforma = ["report", "inform", "avis", "comunic", "traslad"];
-    const palabrasCorrige = ["repar", "corrig", "ajust", "cambi", "deten", "solucion"];
+    const palabrasCorrige = ["repar", "corrig", "ajust", "cambi", "deten", "solucion", "paro"];
 
+    // 🔥 PALABRAS DE RIESGO (CLAVE)
+    const palabrasRiesgo = [
+      "herramienta",
+      "rebaba",
+      "cable",
+      "fuga",
+      "presion",
+      "equipo",
+      "defecto",
+      "dañado",
+      "golpe",
+      "atrap",
+      "filo",
+      "corte",
+      "electr",
+      "caliente",
+      "temperatura",
+      "aceite",
+      "aire",
+      "manguera",
+      "conector",
+      "tuberia",
+      "arnes",
+      "altura"
+    ];
+
+    // 🔹 resultado final (HÍBRIDO)
     const resultados = registros.map((r, i) => {
 
       const ev = evaluaciones[i] || {};
@@ -108,30 +143,37 @@ ${JSON.stringify(reportes, null, 2)}
       const texto = (r.descripcion || "").toLowerCase();
       const accion = (r.accion || "").toLowerCase();
 
-      // 🔥 REGLA CRÍTICA (NO FALLA NUNCA)
+      // 🔥 1. DETECCIÓN FORZADA DE RIESGO
+      if (palabrasRiesgo.some(p => texto.includes(p))) {
+        relacionada = 30;
+      }
+
+      // 🔥 2. CASOS CRÍTICOS (altura / arnés)
       if (
         texto.includes("arnes") ||
         texto.includes("altura") ||
         texto.includes("linea de vida")
       ) {
         relacionada = 30;
-        grupo = 10;
       }
 
-      // 🔥 REGLA GENERAL
+      // 🔥 3. SI HAY RIESGO → HAY PERSONAS
       if (relacionada === 30) {
         grupo = 10;
       }
 
+      // 🔥 4. DETECCIÓN DE INFORMAR
       if (palabrasInforma.some(p => accion.includes(p))) {
         informa = 25;
       }
 
+      // 🔥 5. DETECCIÓN DE CORREGIR
       if (palabrasCorrige.some(p => accion.includes(p))) {
         corrige = 60;
         informa = 0;
       }
 
+      // 🔥 6. REGLA DURA
       if (corrige === 60) {
         informa = 0;
       }
