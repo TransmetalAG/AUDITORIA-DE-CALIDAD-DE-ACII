@@ -7,44 +7,17 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [nombreArchivo, setNombreArchivo] = useState("");
 
-  // 🔥 Leer CSV correctamente (LATIN1)
-  const leerCSV = (texto) => {
-    const lines = texto.split(/\r?\n/);
-    const headers = lines[0].split(",").map(h => h.replace(/["']/g, "").trim());
-
-    const json = [];
-    for (let i = 1; i < lines.length; i++) {
-      if (lines[i].trim() === "") continue;
-
-      const values = [];
-      let current = "";
-      let inQuotes = false;
-
-      for (let char of lines[i]) {
-        if (char === '"') {
-          inQuotes = !inQuotes;
-        } else if (char === "," && !inQuotes) {
-          values.push(current);
-          current = "";
-        } else {
-          current += char;
-        }
-      }
-      values.push(current);
-
-      const row = {};
-      headers.forEach((h, idx) => {
-        let val = values[idx] || "";
-        val = val.replace(/^["']|["']$/g, "");
-        row[h] = val;
-      });
-
-      json.push(row);
-    }
-
-    return json;
+  // 🔥 Obtener valor flexible (no importa tildes o nombre exacto)
+  const getValue = (row, posibles) => {
+    const key = Object.keys(row).find(k =>
+      posibles.some(p =>
+        k.toLowerCase().includes(p)
+      )
+    );
+    return key ? row[key] : "";
   };
 
+  // 📥 Procesar archivo
   const handleFile = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -52,52 +25,24 @@ export default function App() {
     setNombreArchivo(file.name);
     setMensaje(`Leyendo ${file.name}...`);
 
-    const extension = file.name.split('.').pop().toLowerCase();
-
     try {
-      let json = [];
+      const data = await file.arrayBuffer();
 
-      if (extension === "csv") {
-        // 🔥 CORRECCIÓN CLAVE AQUÍ
-        const buffer = await file.arrayBuffer();
-        const decoder = new TextDecoder("latin1");
-        const text = decoder.decode(buffer);
+      // 🔥 XLSX lee CSV y Excel perfectamente
+      const workbook = XLSX.read(data, { type: "array" });
+      const sheet = workbook.Sheets[workbook.SheetNames[0]];
 
-        json = leerCSV(text);
-        setMensaje(`✅ CSV leído: ${json.length} registros`);
-      } 
-      else if (extension === "xlsx" || extension === "xls") {
-        const data = await file.arrayBuffer();
-        const workbook = XLSX.read(data);
-        const sheet = workbook.Sheets[workbook.SheetNames[0]];
-        json = XLSX.utils.sheet_to_json(sheet, {
-          defval: "",
-          raw: false,
-        });
-        setMensaje(`✅ Excel leído: ${json.length} registros`);
-      } 
-      else {
-        setMensaje("❌ Solo CSV o Excel");
-        return;
-      }
+      let json = XLSX.utils.sheet_to_json(sheet, {
+        defval: "",
+        raw: false,
+      });
 
       if (json.length === 0) {
         setMensaje("❌ Archivo vacío");
         return;
       }
 
-      // 🔥 VALIDACIÓN FLEXIBLE (SIN PROBLEMAS DE TILDES)
-      const primeraFila = json[0];
-
-      const getValue = (row, posibles) => {
-        const key = Object.keys(row).find(k =>
-          posibles.some(p =>
-            k.toLowerCase().includes(p)
-          )
-        );
-        return key ? row[key] : "";
-      };
-
+      // 🔥 MAPEO ROBUSTO (no depende de tildes exactas)
       const procesados = json.map((row) => ({
         numero: getValue(row, ["acii"]),
         descripcion: getValue(row, ["descrip"]),
@@ -106,40 +51,55 @@ export default function App() {
       }));
 
       setRows(procesados);
-      setMensaje(`✅ ${procesados.length} registros cargados`);
+      setMensaje(`✅ ${procesados.length} registros cargados correctamente`);
 
     } catch (error) {
       console.error(error);
-      setMensaje(`❌ Error: ${error.message}`);
+      setMensaje(`❌ Error al leer archivo`);
     }
   };
 
+  // 🤖 Evaluar IA (con batching para evitar 429)
   const evaluarIA = async () => {
     if (rows.length === 0) {
-      setMensaje("❌ Primero sube archivo");
+      setMensaje("❌ Primero sube un archivo");
       return;
     }
 
     setLoading(true);
-    setMensaje("🤖 Analizando con IA...");
+    setMensaje("🤖 Procesando con IA...");
 
     try {
-      const res = await fetch("/.netlify/functions/evaluar", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ registros: rows }),
-      });
+      const chunkSize = 20;
+      let resultadosFinales = [];
 
-      const data = await res.json();
+      for (let i = 0; i < rows.length; i += chunkSize) {
+        const chunk = rows.slice(i, i + chunkSize);
 
-      if (!res.ok) {
-        setMensaje(`❌ ${data.error}`);
-        return;
+        setMensaje(`Procesando ${i + 1} - ${i + chunk.length} de ${rows.length}`);
+
+        const res = await fetch("/.netlify/functions/evaluar", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ registros: chunk }),
+        });
+
+        const data = await res.json();
+
+        if (!res.ok) {
+          throw new Error(data.error || "Error IA");
+        }
+
+        resultadosFinales = [...resultadosFinales, ...data];
+
+        // 🔥 evitar rate limit
+        await new Promise(r => setTimeout(r, 400));
       }
 
-      const worksheet = XLSX.utils.json_to_sheet(data);
+      // 📊 Exportar Excel
+      const worksheet = XLSX.utils.json_to_sheet(resultadosFinales);
       const workbook = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(workbook, worksheet, "Resultados");
 
@@ -149,14 +109,21 @@ export default function App() {
 
     } catch (error) {
       console.error(error);
-      setMensaje("❌ Error de conexión");
+      setMensaje(`❌ ${error.message}`);
     } finally {
       setLoading(false);
     }
   };
 
+  // 🧹 Limpiar
+  const limpiarTodo = () => {
+    setRows([]);
+    setMensaje("");
+    setNombreArchivo("");
+  };
+
   return (
-    <div style={{ padding: 20 }}>
+    <div style={{ padding: 20, maxWidth: 800, margin: "0 auto" }}>
       <h1>📋 Auditoría ACII con IA</h1>
 
       <input
@@ -167,13 +134,22 @@ export default function App() {
 
       <br /><br />
 
-      <button onClick={evaluarIA} disabled={loading}>
+      {nombreArchivo && <p>📁 {nombreArchivo}</p>}
+
+      {rows.length > 0 && (
+        <div>
+          <p>📊 Registros: {rows.length}</p>
+          <button onClick={limpiarTodo}>Limpiar</button>
+        </div>
+      )}
+
+      <br />
+
+      <button onClick={evaluarIA} disabled={loading || rows.length === 0}>
         {loading ? "Procesando..." : "Evaluar con IA"}
       </button>
 
       <br /><br />
-
-      {rows.length > 0 && <p>Registros: {rows.length}</p>}
 
       {mensaje && <p><b>{mensaje}</b></p>}
     </div>
