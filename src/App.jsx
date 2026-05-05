@@ -5,13 +5,25 @@ export default function App() {
   const [rows, setRows] = useState([]);
   const [mensaje, setMensaje] = useState("");
 
+  // 🔥 Función para corregir tildes dañadas
+  const limpiarTexto = (texto) => {
+    if (!texto) return "";
+    return texto
+      .toString()
+      .replace(/Ã¡/g, "á")
+      .replace(/Ã©/g, "é")
+      .replace(/Ã­/g, "í")
+      .replace(/Ã³/g, "ó")
+      .replace(/Ãº/g, "ú")
+      .replace(/Ã±/g, "ñ")
+      .replace(/Ã/g, "Á");
+  };
+
   const handleFile = async (e) => {
     const file = e.target.files[0];
+    const data = await file.arrayBuffer();
 
-    // 🔥 Leer archivo como texto (corrige tildes)
-    const text = await file.text();
-
-    const workbook = XLSX.read(text, { type: "string" });
+    const workbook = XLSX.read(data);
     const sheet = workbook.Sheets[workbook.SheetNames[0]];
 
     const json = XLSX.utils.sheet_to_json(sheet, {
@@ -22,10 +34,10 @@ export default function App() {
     console.log("Fila ejemplo:", json[0]);
 
     const procesados = json.map((row) => ({
-      numero: (row["No. ACII"] || "").toString().trim(),
-      descripcion: (row["Descripción"] || "").toString().trim(),
-      accion: (row["Acción Inmediata"] || "").toString().trim(),
-      area: (row["Área"] || "").toString().trim(),
+      numero: row["No. ACII"],
+      descripcion: limpiarTexto(row["Descripción"]),
+      accion: limpiarTexto(row["Acción Inmediata"]),
+      area: limpiarTexto(row["Área"]),
     }));
 
     setRows(procesados);
