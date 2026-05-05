@@ -1,4 +1,6 @@
-export async function handler(event) {
+const fetch = require("node-fetch");
+
+exports.handler = async function (event) {
   const { registros } = JSON.parse(event.body);
 
   const prompt = `
@@ -6,19 +8,13 @@ Eres auditor experto en seguridad industrial (SISO).
 
 Evalúa estos reportes ACII.
 
-REGLAS ESTRICTAS (NO INTERMEDIOS):
+REGLAS ESTRICTAS:
+- Relacionada SISO: 0 o 30
+- Grupo específico: 0 o 10
+- Corrige: 0 o 60
+- Informa: 0 o 25
 
-- Relacionada SISO: SOLO 0 o 30
-- Grupo específico: SOLO 0 o 10
-- Corrige: SOLO 0 o 60
-- Informa: SOLO 0 o 25
-
-IMPORTANTE:
-- Corrige e Informa NO pueden estar ambos activos
-- Si corrige = 60 → informa = 0
-- Si informa = 25 → corrige = 0
-
-Devuelve SOLO JSON válido, sin texto adicional:
+Devuelve SOLO JSON válido:
 
 [
   {
@@ -39,7 +35,7 @@ ${JSON.stringify(registros)}
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Authorization": \`Bearer \${process.env.OPENAI_API_KEY}\`,
+        "Authorization": `Bearer ${process.env.OPENAI_API_KEY}`,
       },
       body: JSON.stringify({
         model: "gpt-4o-mini",
@@ -49,11 +45,9 @@ ${JSON.stringify(registros)}
 
     const data = await response.json();
 
-    // 🔥 EXTRAER TEXTO DE IA
     const texto = data.output?.[0]?.content?.[0]?.text || "";
 
-    // 🔥 EXTRAER JSON (aunque venga con texto raro)
-    const jsonMatch = texto.match(/\\[[\\s\\S]*\\]/);
+    const jsonMatch = texto.match(/\[[\s\S]*\]/);
 
     let evaluaciones = [];
 
@@ -61,7 +55,6 @@ ${JSON.stringify(registros)}
       evaluaciones = JSON.parse(jsonMatch[0]);
     }
 
-    // 🔥 ARMAR RESULTADO FINAL (VALIDANDO VALORES)
     const resultados = registros.map((r, i) => {
       const e = evaluaciones[i] || {};
 
@@ -99,4 +92,4 @@ ${JSON.stringify(registros)}
       body: JSON.stringify({ error: "Error IA" }),
     };
   }
-}
+};
