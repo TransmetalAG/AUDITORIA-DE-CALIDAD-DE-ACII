@@ -14,45 +14,42 @@ export default function App() {
     const json = XLSX.utils.sheet_to_json(sheet);
 
     const procesados = json.map((row) => ({
-      descripcion: row["Descripción"],
-      accion: row["Acción Inmediata"],
+      descripcion: row["Descripción"] || "",
+      accion: (row["Acción Inmediata"] || "").trim(),
     }));
 
     setRows(procesados);
-    setMensaje(""); // limpiar mensaje al subir nuevo archivo
+    setMensaje("");
   };
 
-  const evaluarIA = () => {
+  const evaluarIA = async () => {
     if (rows.length === 0) {
       setMensaje("Primero sube un archivo");
       return;
     }
 
-    let buenos = 0;
-    let malos = 0;
-    let suma = 0;
+    setMensaje("Analizando con IA...");
 
-    rows.forEach((r) => {
-      if (!r.accion) {
-        malos++;
-        suma += 40;
-        return;
-      }
+    try {
+      const res = await fetch("/.netlify/functions/evaluar", {
+        method: "POST",
+        body: JSON.stringify({ registros: rows }),
+      });
 
-      if (r.accion.length > 20) {
-        buenos++;
-        suma += 100;
-      } else {
-        malos++;
-        suma += 40;
-      }
-    });
+      const data = await res.json();
 
-    const promedio = Math.round(suma / rows.length);
+      // Crear Excel nuevo con resultados
+      const worksheet = XLSX.utils.json_to_sheet(data);
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, "Resultados");
 
-    setMensaje(
-      `Promedio: ${promedio}% | Buenos: ${buenos} | Malos: ${malos}`
-    );
+      XLSX.writeFile(workbook, "acii_calificado.xlsx");
+
+      setMensaje("Archivo generado y descargado");
+    } catch (error) {
+      console.error(error);
+      setMensaje("Error al procesar el archivo");
+    }
   };
 
   return (
