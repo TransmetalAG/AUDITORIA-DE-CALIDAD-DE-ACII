@@ -19,144 +19,133 @@ export const handler = async (event) => {
   }
 
   try {
-    if (!event.body) {
-      throw new Error("No se recibieron datos");
-    }
-
-    const { registros } = JSON.parse(event.body);
+    const { registros } = JSON.parse(event.body || "{}");
 
     if (!registros || registros.length === 0) {
-      throw new Error("No hay registros para evaluar");
+      throw new Error("No hay registros");
     }
 
-    console.log(`Procesando ${registros.length} registros`);
+    console.log(`Procesando ${registros.length}`);
 
-    const reportes = registros.map((r, i) => ({
-      id: i,
-      descripcion: r.descripcion || "",
-      accion: r.accion || "",
-    }));
+    // 🔥 NORMALIZADOR
+    const normalizar = (t) =>
+      (t || "")
+        .toLowerCase()
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "");
 
-    // 🔥 PROMPT MEJORADO
-    const prompt = `
-Eres un auditor SISO experto en seguridad industrial en planta.
+    // 🔥 CATEGORÍAS DE RIESGO
+    const categorias = [
+      ["arnes","altura","linea de vida","enganchar"],
+      ["cable","electrico","voltaje"],
+      ["prensa","atrap","golpe","movimiento"],
+      ["rebaba","filo","corte"],
+      ["fuga","presion","hidraul","sello"],
+      ["caliente","horno","temperatura"],
+      ["herramienta","inadecuada"]
+    ];
 
-Evalúa con criterio REAL, no seas excesivamente estricto.
+    const palabrasInforma = ["report","inform","avis","comunic","traslad"];
+    const palabrasCorrige = ["repar","corrig","ajust","cambi","deten","solucion"];
 
-CRITERIOS:
+    // 🔥 PRE-EVALUACIÓN (REGLAS)
+    const base = registros.map((r) => {
 
-1. relacionada:
-- 30 si hay riesgo real o potencial (incluye implícitos)
-- Ej: herramientas malas, presión, golpes, cables, etc
-- 0 solo si es administrativo
+      const desc = normalizar(r.descripcion);
+      const acc = normalizar(r.accion);
 
-2. grupo:
-- 10 si afecta a personas o área operativa (aunque no se mencione persona)
-- 0 solo si es completamente aislado
+      let relacionada = 0;
+      let grupo = 0;
+      let corrige = 0;
+      let informa = 0;
 
-3. corrige:
-- 60 si corrige directamente el riesgo
-
-4. informa:
-- 25 si solo comunica
-
-REGLAS:
-- Nunca corrige e informa juntos
-- Si hay duda → asumir riesgo
-
-RESPONDE SOLO JSON
-
-FORMATO:
-[
-  {
-    "relacionada": 30,
-    "grupo": 10,
-    "corrige": 0,
-    "informa": 25,
-    "comentario": "Justificación clara"
-  }
-]
-
-REPORTES:
-${JSON.stringify(reportes, null, 2)}
-`;
-
-    // 🔹 OpenAI
-    const completion = await client.chat.completions.create({
-      model: "gpt-4o-mini",
-      messages: [
-        { role: "system", content: "Responde solo JSON válido." },
-        { role: "user", content: prompt }
-      ],
-      temperature: 0,
-    });
-
-    let contenido = completion.choices[0].message.content.trim();
-
-    console.log("RAW IA:", contenido);
-
-    // 🔹 limpiar markdown
-    contenido = contenido.replace(/```json|```/g, "").trim();
-
-    let evaluaciones = [];
-
-    try {
-      evaluaciones = JSON.parse(contenido);
-    } catch {
-      const match = contenido.match(/\[[\s\S]*\]/);
-      if (match) {
-        evaluaciones = JSON.parse(match[0]);
-      }
-    }
-
-    // 🔹 fallback seguro
-    if (!Array.isArray(evaluaciones)) {
-      evaluaciones = registros.map(() => ({
-        relacionada: 0,
-        grupo: 0,
-        corrige: 0,
-        informa: 0,
-        comentario: "Fallback IA"
-      }));
-    }
-
-    // 🔥 PALABRAS CLAVE
-    const palabrasInforma = ["reporta", "reporto", "avisa", "informa", "comunica", "traslada"];
-    const palabrasCorrige = ["repara", "corrige", "ajusta", "cambia", "detiene", "se paro"];
-
-    // 🔹 resultado final (HÍBRIDO)
-    const resultados = registros.map((r, i) => {
-      const ev = evaluaciones[i] || {};
-
-      let relacionada = ev.relacionada === 30 ? 30 : 0;
-      let grupo = ev.grupo === 10 ? 10 : 0;
-      let corrige = ev.corrige === 60 ? 60 : 0;
-      let informa = ev.informa === 25 ? 25 : 0;
-
-      const accion = (r.accion || "").toLowerCase();
-
-      // 🔥 LOGICA AUTOMATICA
-
-      // 1. Si hay riesgo → grupo = 10
-      if (relacionada === 30) {
-        grupo = 10;
+      // 🔴 RIESGO
+      for (let cat of categorias) {
+        if (cat.some(p => desc.includes(p))) {
+          relacionada = 30;
+          grupo = 10;
+          break;
+        }
       }
 
-      // 2. Detectar "informa"
-      if (palabrasInforma.some(p => accion.includes(p))) {
+      // 🟡 INFORMAR
+      if (palabrasInforma.some(p => acc.includes(p))) {
         informa = 25;
       }
 
-      // 3. Detectar "corrige"
-      if (palabrasCorrige.some(p => accion.includes(p))) {
+      // 🟢 CORREGIR
+      if (palabrasCorrige.some(p => acc.includes(p))) {
         corrige = 60;
         informa = 0;
       }
 
-      // 4. regla dura
-      if (corrige === 60) {
-        informa = 0;
+      return { relacionada, grupo, corrige, informa };
+    });
+
+    // 🔥 IA SOLO PARA COMPLEMENTAR
+    const prompt = `
+Eres auditor SISO.
+
+Ajusta SOLO si es necesario.
+
+REGLAS:
+- Si hay riesgo → relacionada = 30
+- Si hay riesgo → grupo = 10
+- Si corrige → corrige = 60
+- Si solo comunica → informa = 25
+- Nunca corrige + informa juntos
+
+RESPONDE SOLO JSON.
+
+DATOS:
+${JSON.stringify(registros.map((r,i)=>({
+  descripcion: r.descripcion,
+  accion: r.accion,
+  base: base[i]
+})), null, 2)}
+`;
+
+    let evaluaciones = [];
+
+    try {
+      const completion = await client.chat.completions.create({
+        model: "gpt-4o-mini",
+        messages: [
+          { role: "system", content: "Responde SOLO JSON" },
+          { role: "user", content: prompt }
+        ],
+        temperature: 0,
+      });
+
+      let contenido = completion.choices[0].message.content;
+
+      contenido = contenido.replace(/```json|```/g, "");
+
+      try {
+        evaluaciones = JSON.parse(contenido);
+      } catch {
+        const match = contenido.match(/\[[\s\S]*\]/);
+        if (match) evaluaciones = JSON.parse(match[0]);
       }
+
+    } catch (e) {
+      console.log("IA falló, usando solo reglas");
+    }
+
+    // 🔥 RESULTADO FINAL
+    const resultados = registros.map((r, i) => {
+
+      const b = base[i];
+      const ia = evaluaciones[i] || {};
+
+      let relacionada = ia.relacionada ?? b.relacionada;
+      let grupo = ia.grupo ?? b.grupo;
+      let corrige = ia.corrige ?? b.corrige;
+      let informa = ia.informa ?? b.informa;
+
+      // 🔥 REGLAS FINALES (ANTI-ERROR IA)
+      if (relacionada === 30) grupo = 10;
+      if (corrige === 60) informa = 0;
 
       const total = relacionada + grupo + corrige + informa;
 
@@ -170,7 +159,7 @@ ${JSON.stringify(reportes, null, 2)}
         "Informa (25)": informa,
         "Total": total,
         "Área": r.area || "",
-        "Comentario IA": ev.comentario || "",
+        "Comentario IA": ia.comentario || "Evaluado con reglas + IA",
       };
     });
 
@@ -183,18 +172,15 @@ ${JSON.stringify(reportes, null, 2)}
       body: JSON.stringify(resultados),
     };
 
-  } catch (error) {
-    console.error("ERROR:", error);
+  } catch (err) {
+    console.error(err);
 
     return {
       statusCode: 500,
       headers: {
         "Access-Control-Allow-Origin": "*",
-        "Content-Type": "application/json",
       },
-      body: JSON.stringify({
-        error: error.message,
-      }),
+      body: JSON.stringify({ error: err.message }),
     };
   }
 };
