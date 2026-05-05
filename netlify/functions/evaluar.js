@@ -1,5 +1,4 @@
 exports.handler = async function (event) {
-  // Manejo OPTIONS para CORS
   if (event.httpMethod === "OPTIONS") {
     return {
       statusCode: 204,
@@ -24,7 +23,6 @@ exports.handler = async function (event) {
 
     console.log(`Procesando ${registros.length} registros`);
 
-    // Crear un array con la información relevante para cada registro
     const reportesParaIA = registros.map((r, idx) => ({
       id: idx,
       descripcion: r.descripcion,
@@ -41,10 +39,8 @@ REGLAS DE PUNTAJE:
 
 REGLAS OBLIGATORIAS:
 - NUNCA asignar corrige=60 e informa=25 en el mismo reporte
-- Si asignas corrige=60, informa DEBE ser 0
-- Si asignas informa=25, corrige DEBE ser 0
 
-RESPONDE ÚNICAMENTE con un array JSON. NADA más. Ni explicaciones, ni texto adicional.
+RESPONDE ÚNICAMENTE con un array JSON.
 
 FORMATO EXACTO:
 [
@@ -53,14 +49,12 @@ FORMATO EXACTO:
     "grupo": 10,
     "corrige": 0,
     "informa": 25,
-    "comentario": "Breve justificación de 5-10 palabras"
+    "comentario": "Breve justificación"
   }
 ]
 
 REPORTES:
 ${JSON.stringify(reportesParaIA, null, 2)}`;
-
-    console.log("Enviando a OpenAI...");
 
     const response = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
@@ -73,14 +67,14 @@ ${JSON.stringify(reportesParaIA, null, 2)}`;
         messages: [
           {
             role: "system",
-            content: "Eres un auditor SISO. Siempre respondes SOLO con JSON válido, sin texto adicional."
+            content: "Eres un auditor SISO. Siempre respondes SOLO con JSON válido."
           },
           {
             role: "user",
             content: prompt,
           }
         ],
-        temperature: 0, // Cero para máxima consistencia
+        temperature: 0,
       }),
     });
 
@@ -99,11 +93,9 @@ ${JSON.stringify(reportesParaIA, null, 2)}`;
 
     console.log("Respuesta OpenAI:", contenido);
 
-    // Parsear la respuesta
     let evaluaciones = [];
-    
-    // Limpiar la respuesta (quitar markdown si existe)
     let cleanedContent = contenido.trim();
+    
     if (cleanedContent.startsWith("```json")) {
       cleanedContent = cleanedContent.replace(/```json\n?/, "").replace(/\n?```$/, "");
     }
@@ -118,30 +110,21 @@ ${JSON.stringify(reportesParaIA, null, 2)}`;
       } else if (parsed.evaluaciones && Array.isArray(parsed.evaluaciones)) {
         evaluaciones = parsed.evaluaciones;
       } else {
-        // Si es un solo objeto, lo convertimos en array
         evaluaciones = [parsed];
       }
     } catch (e) {
       console.error("Error parseando JSON:", e);
-      console.error("Contenido que falló:", cleanedContent);
-      
-      // Intentar extraer con regex como último recurso
       const jsonMatch = contenido.match(/\[[\s\S]*?\]/);
       if (jsonMatch) {
         try {
           evaluaciones = JSON.parse(jsonMatch[0]);
         } catch (e2) {
-          console.error("Regex también falló");
           evaluaciones = [];
         }
       }
     }
 
-    console.log(`Parseadas ${evaluaciones.length} evaluaciones`);
-
-    // Si no hay evaluaciones o hay menos que registros, generar evaluaciones por defecto
     if (evaluaciones.length === 0) {
-      console.log("No se recibieron evaluaciones, usando valores por defecto");
       evaluaciones = registros.map(() => ({
         relacionada: 0,
         grupo: 0,
@@ -151,7 +134,6 @@ ${JSON.stringify(reportesParaIA, null, 2)}`;
       }));
     }
 
-    // Construir resultados
     const resultados = registros.map((registro, index) => {
       const evaluacion = evaluaciones[index] || evaluaciones[0] || {};
       
@@ -160,7 +142,6 @@ ${JSON.stringify(reportesParaIA, null, 2)}`;
       let corrige = evaluacion.corrige === 60 ? 60 : 0;
       let informa = evaluacion.informa === 25 ? 25 : 0;
       
-      // Aplicar regla de exclusión mutua
       if (corrige === 60 && informa === 25) {
         informa = 0;
       }
