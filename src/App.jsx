@@ -7,14 +7,42 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [nombreArchivo, setNombreArchivo] = useState("");
 
-  // 🔥 Obtener valor flexible (no importa tildes o nombre exacto)
+  // 🔥 Limpiar tildes dañadas
+  const limpiarTexto = (texto) => {
+    if (!texto) return "";
+    return texto
+      .toString()
+      .replace(/Ã¡/g, "á")
+      .replace(/Ã©/g, "é")
+      .replace(/Ã­/g, "í")
+      .replace(/Ã³/g, "ó")
+      .replace(/Ãº/g, "ú")
+      .replace(/Ã±/g, "ñ")
+      .replace(/Ã/g, "Á")
+      .replace(/Â/g, "")
+      .trim();
+  };
+
+  // 🔥 Obtener valor flexible (soporta tildes rotas y nombres variados)
   const getValue = (row, posibles) => {
-    const key = Object.keys(row).find(k =>
-      posibles.some(p =>
-        k.toLowerCase().includes(p)
-      )
-    );
-    return key ? row[key] : "";
+    for (let key of Object.keys(row)) {
+      const cleanKey = key
+        .toLowerCase()
+        .replace(/Ã¡/g, "á")
+        .replace(/Ã©/g, "é")
+        .replace(/Ã­/g, "í")
+        .replace(/Ã³/g, "ó")
+        .replace(/Ãº/g, "ú")
+        .replace(/Ã±/g, "ñ")
+        .trim();
+
+      for (let p of posibles) {
+        if (cleanKey.includes(p)) {
+          return row[key];
+        }
+      }
+    }
+    return "";
   };
 
   // 📥 Procesar archivo
@@ -28,7 +56,7 @@ export default function App() {
     try {
       const data = await file.arrayBuffer();
 
-      // 🔥 XLSX lee CSV y Excel perfectamente
+      // 🔥 XLSX lee CSV y Excel correctamente
       const workbook = XLSX.read(data, { type: "array" });
       const sheet = workbook.Sheets[workbook.SheetNames[0]];
 
@@ -42,12 +70,14 @@ export default function App() {
         return;
       }
 
-      // 🔥 MAPEO ROBUSTO (no depende de tildes exactas)
+      // 🔥 MAPEO ROBUSTO
       const procesados = json.map((row) => ({
         numero: getValue(row, ["acii"]),
-        descripcion: getValue(row, ["descrip"]),
-        accion: getValue(row, ["accion inmediata"]),
-        area: getValue(row, ["area"]),
+        descripcion: limpiarTexto(getValue(row, ["descrip"])),
+        accion: limpiarTexto(
+          getValue(row, ["accion inmediata", "accion", "accion correctiva"])
+        ),
+        area: limpiarTexto(getValue(row, ["area"])),
       }));
 
       setRows(procesados);
@@ -59,7 +89,7 @@ export default function App() {
     }
   };
 
-  // 🤖 Evaluar IA (con batching para evitar 429)
+  // 🤖 Evaluar IA
   const evaluarIA = async () => {
     if (rows.length === 0) {
       setMensaje("❌ Primero sube un archivo");
@@ -76,7 +106,9 @@ export default function App() {
       for (let i = 0; i < rows.length; i += chunkSize) {
         const chunk = rows.slice(i, i + chunkSize);
 
-        setMensaje(`Procesando ${i + 1} - ${i + chunk.length} de ${rows.length}`);
+        setMensaje(
+          `Procesando ${i + 1} - ${i + chunk.length} de ${rows.length}`
+        );
 
         const res = await fetch("/.netlify/functions/evaluar", {
           method: "POST",
@@ -94,8 +126,8 @@ export default function App() {
 
         resultadosFinales = [...resultadosFinales, ...data];
 
-        // 🔥 evitar rate limit
-        await new Promise(r => setTimeout(r, 400));
+        // 🔥 evitar 429
+        await new Promise((r) => setTimeout(r, 400));
       }
 
       // 📊 Exportar Excel
