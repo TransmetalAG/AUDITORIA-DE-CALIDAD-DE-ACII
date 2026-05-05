@@ -1,67 +1,81 @@
 export async function handler(event) {
   const { registros } = JSON.parse(event.body);
 
-  const evaluados = registros.map((r) => {
-    let descripcion = (r.descripcion || "").toLowerCase();
-    let accion = (r.accion || "").toLowerCase();
+  const resultados = [];
 
-    // 🔹 Relacionada SISO (30)
-    let relacionada = 0;
-    if (
-      descripcion.includes("fuga") ||
-      descripcion.includes("riesgo") ||
-      descripcion.includes("epp") ||
-      descripcion.includes("montacargas") ||
-      descripcion.includes("seguridad")
-    ) {
-      relacionada = 30;
+  for (const r of registros) {
+    const prompt = `
+Eres auditor de seguridad industrial.
+
+Evalúa este reporte ACII con estos criterios:
+
+1. Relacionada SISO (30%)
+2. Grupo específico (10%)
+3. Corrige (60%) o Informa (25%)
+
+Devuelve SOLO JSON así:
+{
+  "relacionada": 0-30,
+  "grupo": 0-10,
+  "corrige": 0-60,
+  "informa": 0-25,
+  "total": suma,
+  "comentario": "breve análisis"
+}
+
+REPORTE:
+Descripción: ${r.descripcion}
+Acción: ${r.accion}
+Área: ${r.area}
+`;
+
+    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${process.env.OPENAI_API_KEY}`,
+      },
+      body: JSON.stringify({
+        model: "gpt-4o-mini",
+        messages: [{ role: "user", content: prompt }],
+        temperature: 0.2,
+      }),
+    });
+
+    const data = await response.json();
+
+    let evaluacion = {
+      relacionada: 0,
+      grupo: 0,
+      corrige: 0,
+      informa: 0,
+      total: 0,
+      comentario: "Error IA",
+    };
+
+    try {
+      const texto = data.choices[0].message.content;
+      evaluacion = JSON.parse(texto);
+    } catch (e) {
+      console.error("Error parsing IA", e);
     }
 
-    // 🔹 Grupo específico (10)
-    let grupo = 0;
-    if (
-      descripcion.includes("colaborador") ||
-      descripcion.includes("operador") ||
-      descripcion.includes("área")
-    ) {
-      grupo = 10;
-    }
-
-    // 🔹 Corrige vs Informa
-    let corrige = 0;
-    let informa = 0;
-
-    if (
-      accion.includes("se corrige") ||
-      accion.includes("se le indica") ||
-      accion.includes("se le pide") ||
-      accion.includes("se coloca") ||
-      accion.includes("se ajusta")
-    ) {
-      corrige = 60;
-    } else if (
-      accion.includes("se reporta") ||
-      accion.includes("se informa")
-    ) {
-      informa = 25;
-    }
-
-    let total = relacionada + grupo + corrige + informa;
-
-    return {
+    resultados.push({
       "No. ACII": r.numero,
       "Descripción": r.descripcion,
       "Acción Inmediata": r.accion,
-      "Relacionada SISO (30)": relacionada,
-      "Grupo específico (10)": grupo,
-      "Corrige (60)": corrige,
-      "Informa (25)": informa,
-      "Total": total,
-    };
-  });
+      "Relacionada SISO (30)": evaluacion.relacionada,
+      "Grupo específico (10)": evaluacion.grupo,
+      "Corrige (60)": evaluacion.corrige,
+      "Informa (25)": evaluacion.informa,
+      "Total": evaluacion.total,
+      "Área": r.area,
+      "Comentario IA": evaluacion.comentario,
+    });
+  }
 
   return {
     statusCode: 200,
-    body: JSON.stringify(evaluados),
+    body: JSON.stringify(resultados),
   };
 }
