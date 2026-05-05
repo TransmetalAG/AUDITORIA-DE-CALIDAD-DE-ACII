@@ -70,8 +70,7 @@ ${JSON.stringify(reportes, null, 2)}
         relacionada: 0,
         grupo: 0,
         corrige: 0,
-        informa: 0,
-        comentario: "Fallback IA"
+        informa: 0
       }));
     }
 
@@ -79,7 +78,7 @@ ${JSON.stringify(reportes, null, 2)}
     const palabrasInforma = ["report", "inform", "avis", "comunic", "traslad"];
     const palabrasCorrige = ["repar", "corrig", "ajust", "cambi", "deten", "paro"];
 
-    // 🔥 NUEVO → DETECTOR DE RIESGO
+    // 🔥 DETECTOR DE RIESGO
     const palabrasRiesgo = [
       "herramienta", "rebaba", "cable", "fuga", "presion",
       "equipo", "defecto", "dañado", "golpe", "atrap",
@@ -102,17 +101,16 @@ ${JSON.stringify(reportes, null, 2)}
       const texto = (r.descripcion || "").toLowerCase();
       const accion = (r.accion || "").toLowerCase();
 
-      // 🔥 NUEVO: CORRECCIÓN DE IA
+      // 🔥 CORRECCIÓN DE IA
       if (palabrasRiesgo.some(p => texto.includes(p))) {
         relacionada = 30;
       }
 
-      // 🔥 CASO CRÍTICO (tu ejemplo real)
       if (texto.includes("arnes") || texto.includes("altura")) {
         relacionada = 30;
       }
 
-      // 🔥 SI HAY RIESGO → FORZAR GRUPO
+      // 🔥 SI HAY RIESGO → GRUPO
       if (relacionada === 30) {
         grupo = 10;
       }
@@ -143,8 +141,7 @@ ${JSON.stringify(reportes, null, 2)}
         "Corrige (60)": corrige,
         "Informa (25)": informa,
         "Total": total,
-        "Área": r.area || "",
-        "Comentario IA": ev.comentario || "",
+        "Área": r.area || ""
       };
     });
 
