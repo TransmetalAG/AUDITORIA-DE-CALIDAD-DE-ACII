@@ -1,5 +1,3 @@
-const fetch = require("node-fetch");
-
 exports.handler = async function (event) {
   const { registros } = JSON.parse(event.body);
 
@@ -9,10 +7,15 @@ Eres auditor experto en seguridad industrial (SISO).
 Evalúa estos reportes ACII.
 
 REGLAS ESTRICTAS:
-- Relacionada SISO: 0 o 30
-- Grupo específico: 0 o 10
-- Corrige: 0 o 60
-- Informa: 0 o 25
+- Relacionada SISO: SOLO 0 o 30
+- Grupo específico: SOLO 0 o 10
+- Corrige: SOLO 0 o 60
+- Informa: SOLO 0 o 25
+
+IMPORTANTE:
+- Corrige e Informa NO pueden estar ambos activos
+- Si corrige = 60 → informa = 0
+- Si informa = 25 → corrige = 0
 
 Devuelve SOLO JSON válido:
 
@@ -45,8 +48,10 @@ ${JSON.stringify(registros)}
 
     const data = await response.json();
 
+    // Extraer texto generado por la IA
     const texto = data.output?.[0]?.content?.[0]?.text || "";
 
+    // Extraer solo el JSON
     const jsonMatch = texto.match(/\[[\s\S]*\]/);
 
     let evaluaciones = [];
@@ -55,6 +60,7 @@ ${JSON.stringify(registros)}
       evaluaciones = JSON.parse(jsonMatch[0]);
     }
 
+    // Construir resultado final validando valores
     const resultados = registros.map((r, i) => {
       const e = evaluaciones[i] || {};
 
