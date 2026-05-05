@@ -13,85 +13,82 @@ exports.handler = async function (event) {
   }
 
   try {
-    if (!event.body) {
-      throw new Error("No se recibieron datos");
-    }
-
-    const { registros } = JSON.parse(event.body);
+    const { registros } = JSON.parse(event.body || "{}");
 
     if (!registros || registros.length === 0) {
-      throw new Error("No hay registros para evaluar");
+      throw new Error("No hay registros");
     }
 
-    console.log(`Procesando ${registros.length} registros`);
+    console.log(`Procesando ${registros.length}`);
 
-    const reportesParaIA = registros.map((r, idx) => ({
-      id: idx,
-      descripcion: r.descripcion,
-      accion: r.accion,
-    }));
+    // 🔥 FUNCIONES AUXILIARES
+    const normalizar = (t) =>
+      (t || "")
+        .toLowerCase()
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "");
 
-    // 🔥 PROMPT MEJORADO (INTELIGENTE)
-    const prompt = `Eres un auditor SISO experto en seguridad industrial en planta.
+    const contiene = (texto, lista) =>
+      lista.some((p) => texto.includes(p));
 
-Debes evaluar cada reporte con criterio profesional REAL de seguridad.
+    // 🔥 PALABRAS CLAVE INDUSTRIALES
+    const palabrasRiesgo = [
+      "rebaba","filo","corte","golpe","caer","caida","atrap",
+      "cable","electrico","fuga","presion","hidraul",
+      "herramienta","inadecuada","defecto","mal estado",
+      "sello","empaque","guia","prensa","embutido",
+      "temperatura","calor"
+    ];
 
-========================
-CRITERIOS:
+    const palabrasInformar = [
+      "report","inform","avis","comunic","traslad"
+    ];
 
-1. relacionada:
-- 30 si existe riesgo REAL o POTENCIAL de accidente
-- Incluye riesgos IMPLÍCITOS (aunque no se mencione accidente)
-- Ejemplos que SI son SISO:
-  - herramienta inadecuada
-  - cable expuesto
-  - fuga, presión, calor
-  - mala práctica operativa
-  - equipo defectuoso
-- 0 SOLO si es completamente administrativo o mejora leve sin impacto en seguridad
+    const palabrasCorregir = [
+      "repar","cambi","ajust","corrig","deten","arregl","solucion"
+    ];
 
-2. grupo:
-- 10 si menciona operador, colaborador o persona específica
-- 0 si es general
+    // 🔥 PRE-EVALUACIÓN INTELIGENTE
+    const preEvaluados = registros.map((r) => {
 
-3. corrige:
-- 60 si la acción elimina o corrige el riesgo directamente
-- Ej: reparar, cambiar, detener, ajustar, corregir
-- 0 si no corrige
+      const desc = normalizar(r.descripcion);
+      const acc = normalizar(r.accion);
 
-4. informa:
-- 25 si solo reporta, comunica o escala
-- Ej: "se informa", "se avisa", "se traslada"
-- 0 si no
+      let relacionada = contiene(desc, palabrasRiesgo) ? 30 : 0;
+      let informa = contiene(acc, palabrasInformar) ? 25 : 0;
+      let corrige = contiene(acc, palabrasCorregir) ? 60 : 0;
 
-========================
-REGLAS OBLIGATORIAS:
+      // 🔥 regla fuerte
+      if (corrige === 60) informa = 0;
 
-- Nunca corrige=60 e informa=25 juntos
-- Si hay corrección real → usar corrige (NO informa)
-- Si solo se comunica → usar informa
-- No todos los reportes son SISO, pero si hay duda → considerar riesgo potencial
+      return {
+        relacionada,
+        informa,
+        corrige
+      };
+    });
 
-========================
-RESPONDE SOLO JSON válido
+    // 🔥 SOLO IA PARA AJUSTES FINOS
+    const prompt = `Eres auditor SISO.
 
-FORMATO:
-[
-  {
-    "relacionada": 30,
-    "grupo": 10,
-    "corrige": 0,
-    "informa": 25,
-    "comentario": "Justificación clara y técnica"
-  }
-]
+Ajusta SOLO si es necesario estos valores.
 
-========================
-REPORTES:
-${JSON.stringify(reportesParaIA, null, 2)}
+REGLAS:
+- Si hay riesgo implícito → relacionada = 30
+- Si solo comunica → informa = 25
+- Si corrige → corrige = 60
+- Nunca corrige + informa juntos
+
+RESPONDE SOLO JSON.
+
+DATOS:
+${JSON.stringify(registros.map((r,i)=>({
+  descripcion: r.descripcion,
+  accion: r.accion,
+  base: preEvaluados[i]
+})), null, 2)}
 `;
 
-    // 🔹 Llamada OpenAI
     const response = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: {
@@ -101,100 +98,52 @@ ${JSON.stringify(reportesParaIA, null, 2)}
       body: JSON.stringify({
         model: "gpt-4o-mini",
         messages: [
-          {
-            role: "system",
-            content: "Responde únicamente con JSON válido. No agregues texto extra.",
-          },
-          {
-            role: "user",
-            content: prompt,
-          }
+          { role: "system", content: "Responde SOLO JSON" },
+          { role: "user", content: prompt }
         ],
         temperature: 0,
       }),
     });
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error("Error OpenAI:", response.status, errorText);
-      throw new Error(`OpenAI error: ${response.status}`);
-    }
-
     const data = await response.json();
-    const contenido = data.choices?.[0]?.message?.content;
+    let contenido = data.choices?.[0]?.message?.content || "[]";
 
-    if (!contenido) {
-      throw new Error("OpenAI no devolvió contenido");
-    }
-
-    console.log("Respuesta IA:", contenido);
+    contenido = contenido.replace(/```json|```/g, "");
 
     let evaluaciones = [];
-    let cleaned = contenido.trim();
 
-    // 🔹 Limpiar markdown
-    if (cleaned.startsWith("```json")) {
-      cleaned = cleaned.replace(/```json\n?/, "").replace(/\n?```$/, "");
-    }
-    if (cleaned.startsWith("```")) {
-      cleaned = cleaned.replace(/```\n?/, "").replace(/\n?```$/, "");
-    }
-
-    // 🔹 Parse seguro
     try {
-      const parsed = JSON.parse(cleaned);
-      evaluaciones = Array.isArray(parsed) ? parsed : [parsed];
-    } catch (e) {
-      console.error("Error parseando JSON:", e);
-
-      const match = contenido.match(/\[[\s\S]*\]/);
-      if (match) {
-        try {
-          evaluaciones = JSON.parse(match[0]);
-        } catch {
-          evaluaciones = [];
-        }
-      }
+      evaluaciones = JSON.parse(contenido);
+    } catch {
+      evaluaciones = [];
     }
 
-    // 🔹 Fallback
-    if (evaluaciones.length === 0) {
-      evaluaciones = registros.map(() => ({
-        relacionada: 0,
-        grupo: 0,
-        corrige: 0,
-        informa: 0,
-        comentario: "No evaluado",
-      }));
-    }
+    // 🔥 RESULTADO FINAL (combina IA + reglas)
+    const resultados = registros.map((r, i) => {
 
-    // 🔹 Construcción final
-    const resultados = registros.map((registro, index) => {
-      const ev = evaluaciones[index] || {};
+      const base = preEvaluados[i];
+      const ia = evaluaciones[i] || {};
 
-      let relacionada = ev.relacionada === 30 ? 30 : 0;
-      let grupo = ev.grupo === 10 ? 10 : 0;
-      let corrige = ev.corrige === 60 ? 60 : 0;
-      let informa = ev.informa === 25 ? 25 : 0;
+      let relacionada = ia.relacionada ?? base.relacionada;
+      let grupo = ia.grupo === 10 ? 10 : 0;
+      let corrige = ia.corrige ?? base.corrige;
+      let informa = ia.informa ?? base.informa;
 
-      // 🔥 regla dura
-      if (corrige === 60 && informa === 25) {
-        informa = 0;
-      }
+      if (corrige === 60) informa = 0;
 
       const total = relacionada + grupo + corrige + informa;
 
       return {
-        "No. ACII": registro.numero || "",
-        "Descripción": registro.descripcion || "",
-        "Acción Inmediata": registro.accion || "",
+        "No. ACII": r.numero || "",
+        "Descripción": r.descripcion || "",
+        "Acción Inmediata": r.accion || "",
         "Relacionada SISO (30)": relacionada,
         "Grupo específico (10)": grupo,
         "Corrige (60)": corrige,
         "Informa (25)": informa,
         "Total": total,
-        "Área": registro.area || "",
-        "Comentario IA": ev.comentario || "Sin comentario",
+        "Área": r.area || "",
+        "Comentario IA": ia.comentario || "Evaluado automáticamente",
       };
     });
 
@@ -207,18 +156,15 @@ ${JSON.stringify(reportesParaIA, null, 2)}
       body: JSON.stringify(resultados),
     };
 
-  } catch (error) {
-    console.error("ERROR:", error.message);
+  } catch (err) {
+    console.error(err);
 
     return {
       statusCode: 500,
       headers: {
         "Access-Control-Allow-Origin": "*",
-        "Content-Type": "application/json",
       },
-      body: JSON.stringify({
-        error: error.message,
-      }),
+      body: JSON.stringify({ error: err.message }),
     };
   }
 };
