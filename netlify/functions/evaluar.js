@@ -26,7 +26,7 @@ export const handler = async (event) => {
       accion: r.accion || "",
     }));
 
-    // 🔥 PROMPT DEFINITIVO CON 28 EJEMPLOS (agregados 3 nuevos)
+    // 🔥 PROMPT ACTUALIZADO (con énfasis en verbos en pasado)
     const prompt = `
 Eres un auditor SISO experto en seguridad industrial.
 
@@ -36,7 +36,8 @@ Debes evaluar cada reporte y devolver SOLO un array JSON con este formato:
 REGLAS ESTRICTAS:
 - relacionada = 30 si hay una CONDICIÓN INSEGURA o ACTO INSEGURO (riesgo de accidente)
 - grupo = 10 si afecta a personas o un área específica
-- corrige = 60 si la acción SOLUCIONA el problema (reparar, instalar, cambiar, detener, limpiar, ordenar, separar, bloquear)
+- corrige = 60 SOLO si la acción YA FUE EJECUTADA (verbos en pasado: "se reparó", "se cambió", "se limpió", "se ordenó", "se separaron", "se procedió a...", "se realizó", "se detuvo")
+- NO dar corrige=60 si la acción está en imperativo ("reparar", "cambiar", "separar", "limpiar", "ordenar") o futuro ("se programará", "se planificará", "se solicitará", "se agendará")
 - informa = 25 si la acción solo COMUNICA (reportar, avisar, notificar)
 - NUNCA poner corrige e informa juntos. Si corrige=60, informa=0
 
@@ -44,7 +45,7 @@ EJEMPLOS (aprende de estos casos):
 
 1. Descripción: "Cable eléctrico suelto en pasillo"
    Acción: "Se repara el cable"
-   Salida: {"relacionada": 30, "grupo": 10, "corrige": 60, "informa": 0}
+   Salida: {"relacionada": 30, "grupo": 10, "corrige": 60, "informa": 0}  // PASADO
 
 2. Descripción: "Grasa en el suelo del área de producción"
    Acción: "Se reporta a supervisor"
@@ -54,103 +55,31 @@ EJEMPLOS (aprende de estos casos):
    Acción: ""
    Salida: {"relacionada": 30, "grupo": 10, "corrige": 0, "informa": 0}
 
-4. Descripción: "Se necesita guarda desmontable en encoiler para montar rollos"
-   Acción: "Se reporta a mantenimiento"
-   Salida: {"relacionada": 30, "grupo": 10, "corrige": 0, "informa": 25}
+4. Descripción: "Esmeril está muy cerca de equipo de oxicorte"
+   Acción: "Separar los equipos"  (IMPERATIVO, NO EJECUTADO)
+   Salida: {"relacionada": 30, "grupo": 10, "corrige": 0, "informa": 0}  // 40 puntos
 
-5. Descripción: "Troqueladora no tiene control de energías peligrosas"
-   Acción: ""
-   Salida: {"relacionada": 30, "grupo": 10, "corrige": 0, "informa": 0}
+5. Descripción: "Esmeril está muy cerca de equipo de oxicorte"
+   Acción: "Se separaron los equipos"  (PASADO, EJECUTADO)
+   Salida: {"relacionada": 30, "grupo": 10, "corrige": 60, "informa": 0}  // 100 puntos
 
-6. Descripción: "Prensa sin resguardo de seguridad"
-   Acción: "Se detiene máquina y se reporta"
+6. Descripción: "Carro obstaculizando el paso"
+   Acción: "Se movió inmediatamente"
    Salida: {"relacionada": 30, "grupo": 10, "corrige": 60, "informa": 0}
 
-7. Descripción: "Fajas quebradas en troqueladora"
-   Acción: "Se reemplazan las fajas"
-   Salida: {"relacionada": 30, "grupo": 10, "corrige": 60, "informa": 0}
-
-8. Descripción: "Trabajador no llevaba puestos sus lentes en área externa"
-   Acción: "Se le recuerda usar EPP"
-   Salida: {"relacionada": 30, "grupo": 10, "corrige": 0, "informa": 25}
-
-9. Descripción: "Operario sin guantes en manejo de químicos"
-   Acción: ""
+7. Descripción: "Carro obstaculizando el paso"
+   Acción: "Mover el carro"
    Salida: {"relacionada": 30, "grupo": 10, "corrige": 0, "informa": 0}
 
-10. Descripción: "Personal sin casco en zona de altura"
-    Acción: "Se reporta a supervisor"
-    Salida: {"relacionada": 30, "grupo": 10, "corrige": 0, "informa": 25}
+8. Descripción: "Dispensador de agua no sirve" (SIN RIESGO)
+   Acción: "Se reporta"
+   Salida: {"relacionada": 0, "grupo": 0, "corrige": 0, "informa": 25}
 
-11. Descripción: "Toma corriente en formadora está dañado, la espiga se afloja al conectar"
-    Acción: ""
-    Salida: {"relacionada": 30, "grupo": 10, "corrige": 0, "informa": 0}
+9. Descripción: "Dispensador de agua no sirve, puede causar fatiga por calor extremo"
+   Acción: "Se reporta"
+   Salida: {"relacionada": 30, "grupo": 10, "corrige": 0, "informa": 25}
 
-12. Descripción: "Toma eléctrica defectuosa en máquina"
-    Acción: "Se reporta a mantenimiento"
-    Salida: {"relacionada": 30, "grupo": 10, "corrige": 0, "informa": 25}
-
-13. Descripción: "Troqueladora activa cilindro con hongo activado"
-    Acción: ""
-    Salida: {"relacionada": 30, "grupo": 10, "corrige": 0, "informa": 0}
-
-14. Descripción: "Botón de emergencia anulado en prensa hidráulica"
-    Acción: "Se reporta a ingeniería"
-    Salida: {"relacionada": 30, "grupo": 10, "corrige": 0, "informa": 25}
-
-15. Descripción: "Las botas del colaborador necesitan cambio, están desgastadas"
-    Acción: ""
-    Salida: {"relacionada": 30, "grupo": 10, "corrige": 0, "informa": 0}
-
-16. Descripción: "Casco de seguridad del operario está vencido"
-    Acción: "Se solicita reemplazo a bodega"
-    Salida: {"relacionada": 30, "grupo": 10, "corrige": 0, "informa": 25}
-
-17. Descripción: "Extensiones atravesadas y desorden en área de trabajo"
-    Acción: ""
-    Salida: {"relacionada": 30, "grupo": 10, "corrige": 0, "informa": 0}
-
-18. Descripción: "Cables eléctricos cruzando el pasillo sin protección"
-    Acción: "Se ordenan los cables"
-    Salida: {"relacionada": 30, "grupo": 10, "corrige": 60, "informa": 0}
-
-19. Descripción: "Puerta de cristal no tiene cinta de color señalizando que es una puerta"
-    Acción: ""
-    Salida: {"relacionada": 30, "grupo": 10, "corrige": 0, "informa": 0}
-
-20. Descripción: "Ventanal limpio sin señalización en área de tránsito"
-    Acción: "Se coloca cinta adhesiva de color"
-    Salida: {"relacionada": 30, "grupo": 10, "corrige": 60, "informa": 0}
-
-21. Descripción: "Se cayó la canaleta del sistema eléctrico"
-    Acción: "Se reporta al soldador de mantenimiento"
-    Salida: {"relacionada": 30, "grupo": 10, "corrige": 0, "informa": 25}
-
-22. Descripción: "Canaleta eléctrica caída"
-    Acción: ""
-    Salida: {"relacionada": 30, "grupo": 10, "corrige": 0, "informa": 0}
-
-23. Descripción: "Esmeril está muy cerca de equipo de oxicorte"
-    Acción: "Separar los equipos"
-    Salida: {"relacionada": 30, "grupo": 10, "corrige": 60, "informa": 0}
-
-24. Descripción: "Esmeril cerca de material inflamable (trapos con aceite, solventes)"
-    Acción: "Se aleja el esmeril o se retira el material inflamable"
-    Salida: {"relacionada": 30, "grupo": 10, "corrige": 60, "informa": 0}
-
-25. Descripción: "Cilindros de gas sin sujetar"
-    Acción: "Se sujetan los cilindros"
-    Salida: {"relacionada": 30, "grupo": 10, "corrige": 60, "informa": 0}
-
-26. Descripción: "Temperatura normal en área de trabajo" (SIN RIESGO)
-    Acción: "Ninguna"
-    Salida: {"relacionada": 0, "grupo": 0, "corrige": 0, "informa": 0}
-
-27. Descripción: "Se acabó el café de la máquina" (SIN RIESGO)
-    Acción: "Se avisa a servicios generales"
-    Salida: {"relacionada": 0, "grupo": 0, "corrige": 0, "informa": 25}
-
-28. Descripción: "Oficina sin novedad" (SIN RIESGO)
+10. Descripción: "Temperatura normal en área de trabajo" (SIN RIESGO)
     Acción: "Ninguna"
     Salida: {"relacionada": 0, "grupo": 0, "corrige": 0, "informa": 0}
 
@@ -190,17 +119,34 @@ ${JSON.stringify(reportes, null, 2)}
       }));
     }
 
-    // 🔥 RED DE SEGURIDAD (ampliada para riesgos de incendio/explosión)
+    // 🔥 PALABRAS PARA DETECTAR ACCIONES REALMENTE EJECUTADAS (PASADO)
+    const palabrasAccionEjecutada = [
+      "se reparo", "se reparó", "se cambió", "se cambio", "se limpio", "se limpió",
+      "se ordeno", "se ordenó", "se movio", "se movió", "se separaron", "se procedio",
+      "se procedió", "se realizo", "se realizó", "se detuvo", "se apago", "se apagó",
+      "se coloco", "se colocó", "se quito", "se quitó", "se corrigio", "se corrigió",
+      "se fabrico", "se fabricó", "se instalo", "se instaló", "se hizo", "se iso"
+    ];
+    
+    // 🔥 PALABRAS QUE INDICAN INTENCIÓN O FUTURO (NO CORRIGE)
+    const palabrasIntencion = [
+      "programar", "planificar", "agendar", "solicitar", "separar", "mover", 
+      "limpiar", "ordenar", "reparar", "cambiar", "colocar", "quitarlo", 
+      "hay que", "se debe", "sería bueno", "se necesita", "favor de",
+      "se programara", "se planificara", "se agendara", "se solicitara"
+    ];
+    
+    // 🔥 PALABRAS DE RIESGO (ampliadas)
     const palabrasRiesgoBasico = [
       "grasa", "suelo", "piso", "cable", "fuga", "electr", "canaleta",
       "guardia", "control", "energia", "peligro", "lentes", "botas",
       "extension", "desorden", "cristal", "hongo", "troquel", "faja",
-      // 🔥 NUEVAS PALABRAS PARA RIESGOS DE INCENDIO/EXPLOSIÓN
       "esmeril", "oxicorte", "inflamable", "incendio", "explosion", "gas",
-      "cilindro", "sujetar", "solvente", "aceite", "trapo", "combustible"
+      "cilindro", "solvente", "aceite", "derrame", "caida", "tropiezo",
+      "pernos", "alfombra", "escalera", "prensa", "resguardo"
     ];
-    const palabrasCorrigeBasico = ["repar", "corrig", "cambi", "deten", "limpia", "ordena", "coloca", "separa", "aleja", "sujeta"];
-    const palabrasInformaBasico = ["report", "inform", "avis", "notific"];
+    
+    const palabrasInformaBasico = ["report", "inform", "avis", "notific", "comunic"];
 
     const resultados = registros.map((r, i) => {
       let ev = evaluaciones[i] || {};
@@ -210,17 +156,23 @@ ${JSON.stringify(reportes, null, 2)}
       let corrige = ev.corrige === 60 ? 60 : 0;
       let informa = ev.informa === 25 ? 25 : 0;
       
-      // Emergencia: si la IA no detectó nada
+      const texto = (r.descripcion || "").toLowerCase();
+      const accion = (r.accion || "").toLowerCase();
+      
+      // 🔥 SOLO si la IA no detectó nada, aplicar reglas de emergencia
       if (relacionada === 0 && grupo === 0 && corrige === 0 && informa === 0) {
-        const texto = (r.descripcion || "").toLowerCase();
-        const accion = (r.accion || "").toLowerCase();
         
+        // Detectar riesgo
         if (palabrasRiesgoBasico.some(p => texto.includes(p))) {
           relacionada = 30;
           grupo = 10;
         }
         
-        if (palabrasCorrigeBasico.some(p => accion.includes(p))) {
+        // 🔥 DETECTAR SI LA ACCIÓN YA FUE EJECUTADA (PASADO)
+        const esAccionEjecutada = palabrasAccionEjecutada.some(p => accion.includes(p));
+        const esIntencion = palabrasIntencion.some(p => accion.includes(p));
+        
+        if (esAccionEjecutada && !esIntencion) {
           corrige = 60;
           informa = 0;
         } else if (palabrasInformaBasico.some(p => accion.includes(p))) {
@@ -228,9 +180,18 @@ ${JSON.stringify(reportes, null, 2)}
         }
       }
       
-      // Reglas de consistencia
+      // 🔥 REGLAS DE CONSISTENCIA
       if (relacionada === 30 && grupo === 0) grupo = 10;
-      if (corrige === 60 && informa !== 0) informa = 0;
+      if (corrige === 60) informa = 0;
+      
+      // 🔥 VALIDACIÓN FINAL: Si la acción es intención, anular corrige
+      const accion = (r.accion || "").toLowerCase();
+      const esIntencionFinal = palabrasIntencion.some(p => accion.includes(p));
+      const noEsEjecutada = !palabrasAccionEjecutada.some(p => accion.includes(p));
+      
+      if (esIntencionFinal && noEsEjecutada && corrige === 60) {
+        corrige = 0;
+      }
       
       const total = relacionada + grupo + corrige + informa;
       
