@@ -4,26 +4,26 @@ const client = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-// 🔥 FUNCIÓN DE NORMALIZACIÓN (solo esto agregué nuevo)
+// 🔥 FUNCIÓN PARA NORMALIZAR TEXTO (corrige caracteres rotos y quita acentos)
 const normalizarTexto = (str) => {
   if (!str) return "";
-  return str
-    .toString()
-    .toLowerCase()
-    // Corregir caracteres rotos comunes
-    .replace(/Ã¡/g, "á")
-    .replace(/Ã©/g, "é")
-    .replace(/Ã­/g, "í")
-    .replace(/Ã³/g, "ó")
-    .replace(/Ãº/g, "ú")
-    .replace(/Ã±/g, "ñ")
-    .replace(/Ã¼/g, "ü")
-    .replace(/Ã/g, "")
-    .replace(/Â/g, "")
-    // Quitar acentos
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .trim();
+  let texto = str.toString().toLowerCase();
+  
+  // Corregir caracteres rotos comunes (por mala codificación)
+  texto = texto.replace(/Ã¡/g, "á");
+  texto = texto.replace(/Ã©/g, "é");
+  texto = texto.replace(/Ã­/g, "í");
+  texto = texto.replace(/Ã³/g, "ó");
+  texto = texto.replace(/Ãº/g, "ú");
+  texto = texto.replace(/Ã±/g, "ñ");
+  texto = texto.replace(/Ã¼/g, "ü");
+  texto = texto.replace(/Ã/g, "");
+  texto = texto.replace(/Â/g, "");
+  
+  // Quitar acentos
+  texto = texto.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  
+  return texto.trim();
 };
 
 export const handler = async (event) => {
@@ -97,10 +97,10 @@ ${JSON.stringify(reportes, null, 2)}
     }
 
     // 🔥 PALABRAS CLAVE (AMPLIADAS)
-    const palabrasInforma = ["report", "inform", "avis", "comunic", "traslad", "comento", "dijo", "notifico", "aviso"];
-    const palabrasCorrige = ["repar", "corrig", "ajust", "cambi", "deten", "paro", "colocara", "colocará", "instal", "soldador"];
+    const palabrasInforma = ["report", "inform", "avis", "comunic", "traslad"];
+    const palabrasCorrige = ["repar", "corrig", "ajust", "cambi", "deten", "paro"];
 
-    // 🔥 DETECTOR DE RIESGO (AMPLIADO)
+    // 🔥 DETECTOR DE RIESGO (AMPLIADO con "canaleta")
     const palabrasRiesgo = [
       "herramienta", "rebaba", "cable", "fuga", "presion",
       "equipo", "defecto", "dañado", "golpe", "atrap",
@@ -109,9 +109,8 @@ ${JSON.stringify(reportes, null, 2)}
       "altura", "eslinga", "troquel", "ruido",
       "vibracion", "freno", "prensa", "esmeril",
       "extintor", "lentes", "epp", "guante", "botas",
-      // 🔥 NUEVAS PALABRAS
-      "canaleta", "escalera", "andamio", "baranda", "caida",
-      "faja", "quebrada", "ventilador", "derrame", "suelo"
+      // 🔥 NUEVA PALABRA CLAVE
+      "canaleta"
     ];
 
     const resultados = registros.map((r, i) => {
@@ -123,7 +122,7 @@ ${JSON.stringify(reportes, null, 2)}
       let corrige = ev.corrige === 60 ? 60 : 0;
       let informa = ev.informa === 25 ? 25 : 0;
 
-      // 🔥 NORMALIZAR texto ANTES de buscar (LA CLAVE)
+      // 🔥 NORMALIZAR texto ANTES de buscar (para detectar "eléctrico" aunque venga roto)
       const texto = normalizarTexto(r.descripcion || "");
       const accion = normalizarTexto(r.accion || "");
 
