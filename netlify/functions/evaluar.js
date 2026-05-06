@@ -4,17 +4,6 @@ const client = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-// 🔥 Función de normalización (solo para reglas de emergencia)
-const normalizarTexto = (str) => {
-  if (!str) return "";
-  return str
-    .toString()
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .trim();
-};
-
 export const handler = async (event) => {
 
   if (event.httpMethod === "OPTIONS") {
@@ -37,20 +26,21 @@ export const handler = async (event) => {
       accion: r.accion || "",
     }));
 
-    // 🔥 PROMPT CON EJEMPLOS (FEW-SHOT)
+    // 🔥 PROMPT DEFINITIVO CON 25 EJEMPLOS
     const prompt = `
 Eres un auditor SISO experto en seguridad industrial.
 
-Debes evaluar cada reporte y devolver SOLO un array JSON.
+Debes evaluar cada reporte y devolver SOLO un array JSON con este formato:
+{"relacionada": 0-30, "grupo": 0-10, "corrige": 0-60, "informa": 0-25}
 
 REGLAS ESTRICTAS:
-- relacionada = 30 si el reporte describe una condición insegura o acto inseguro (riesgo de accidente).
-- grupo = 10 si la condición afecta a personas o a un área específica de trabajo.
-- corrige = 60 si la acción inmediata SOLUCIONA el problema (reparar, instalar, cambiar, detener, limpiar).
-- informa = 25 si la acción inmediata solo COMUNICA el problema (reportar, avisar, notificar).
-- NUNCA poner corrige e informa juntos. Si corrige=60, informa=0.
+- relacionada = 30 si hay una CONDICIÓN INSEGURA o ACTO INSEGURO (riesgo de accidente)
+- grupo = 10 si afecta a personas o un área específica
+- corrige = 60 si la acción SOLUCIONA el problema (reparar, instalar, cambiar, detener, limpiar, ordenar)
+- informa = 25 si la acción solo COMUNICA (reportar, avisar, notificar)
+- NUNCA poner corrige e informa juntos. Si corrige=60, informa=0
 
-EJEMPLOS:
+EJEMPLOS (aprende de estos casos):
 
 1. Descripción: "Cable eléctrico suelto en pasillo"
    Acción: "Se repara el cable"
@@ -60,31 +50,99 @@ EJEMPLOS:
    Acción: "Se reporta a supervisor"
    Salida: {"relacionada": 30, "grupo": 10, "corrige": 0, "informa": 25}
 
-3. Descripción: "Ruido extraño en motor"
+3. Descripción: "Falta de guarda en la parte del encoiler"
+   Acción: ""
+   Salida: {"relacionada": 30, "grupo": 10, "corrige": 0, "informa": 0}
+
+4. Descripción: "Se necesita guarda desmontable en encoiler para montar rollos"
+   Acción: "Se reporta a mantenimiento"
+   Salida: {"relacionada": 30, "grupo": 10, "corrige": 0, "informa": 25}
+
+5. Descripción: "Troqueladora no tiene control de energías peligrosas"
+   Acción: ""
+   Salida: {"relacionada": 30, "grupo": 10, "corrige": 0, "informa": 0}
+
+6. Descripción: "Prensa sin resguardo de seguridad"
    Acción: "Se detiene máquina y se reporta"
    Salida: {"relacionada": 30, "grupo": 10, "corrige": 60, "informa": 0}
 
-4. Descripción: "Falta de iluminación en bodega"
-   Acción: "Se informa a mantenimiento"
-   Salida: {"relacionada": 30, "grupo": 10, "corrige": 0, "informa": 25}
-
-5. Descripción: "Temperatura normal en área de trabajo"
-   Acción: "Ninguna"
-   Salida: {"relacionada": 0, "grupo": 0, "corrige": 0, "informa": 0}
-
-6. Descripción: "Faja quebrada en troqueladora"
-   Acción: "Se reemplaza la faja"
+7. Descripción: "Fajas quebradas en troqueladora"
+   Acción: "Se reemplazan las fajas"
    Salida: {"relacionada": 30, "grupo": 10, "corrige": 60, "informa": 0}
 
-7. Descripción: "Canaleta eléctrica caída"
-   Acción: "Se reporta al soldador"
+8. Descripción: "Trabajador no llevaba puestos sus lentes en área externa"
+   Acción: "Se le recuerda usar EPP"
    Salida: {"relacionada": 30, "grupo": 10, "corrige": 0, "informa": 25}
 
-8. Descripción: "Ventilador sobrecalentado"
-   Acción: "Se apaga y se reporta"
-   Salida: {"relacionada": 30, "grupo": 10, "corrige": 60, "informa": 0}
+9. Descripción: "Operario sin guantes en manejo de químicos"
+   Acción: ""
+   Salida: {"relacionada": 30, "grupo": 10, "corrige": 0, "informa": 0}
 
-Ahora evalúa estos reportes:
+10. Descripción: "Personal sin casco en zona de altura"
+    Acción: "Se reporta a supervisor"
+    Salida: {"relacionada": 30, "grupo": 10, "corrige": 0, "informa": 25}
+
+11. Descripción: "Toma corriente en formadora está dañado, la espiga se afloja al conectar"
+    Acción: ""
+    Salida: {"relacionada": 30, "grupo": 10, "corrige": 0, "informa": 0}
+
+12. Descripción: "Toma eléctrica defectuosa en máquina"
+    Acción: "Se reporta a mantenimiento"
+    Salida: {"relacionada": 30, "grupo": 10, "corrige": 0, "informa": 25}
+
+13. Descripción: "Troqueladora activa cilindro con hongo activado"
+    Acción: ""
+    Salida: {"relacionada": 30, "grupo": 10, "corrige": 0, "informa": 0}
+
+14. Descripción: "Botón de emergencia anulado en prensa hidráulica"
+    Acción: "Se reporta a ingeniería"
+    Salida: {"relacionada": 30, "grupo": 10, "corrige": 0, "informa": 25}
+
+15. Descripción: "Las botas del colaborador necesitan cambio, están desgastadas"
+    Acción: ""
+    Salida: {"relacionada": 30, "grupo": 10, "corrige": 0, "informa": 0}
+
+16. Descripción: "Casco de seguridad del operario está vencido"
+    Acción: "Se solicita reemplazo a bodega"
+    Salida: {"relacionada": 30, "grupo": 10, "corrige": 0, "informa": 25}
+
+17. Descripción: "Extensiones atravesadas y desorden en área de trabajo"
+    Acción: ""
+    Salida: {"relacionada": 30, "grupo": 10, "corrige": 0, "informa": 0}
+
+18. Descripción: "Cables eléctricos cruzando el pasillo sin protección"
+    Acción: "Se ordenan los cables"
+    Salida: {"relacionada": 30, "grupo": 10, "corrige": 60, "informa": 0}
+
+19. Descripción: "Puerta de cristal no tiene cinta de color señalizando que es una puerta"
+    Acción: ""
+    Salida: {"relacionada": 30, "grupo": 10, "corrige": 0, "informa": 0}
+
+20. Descripción: "Ventanal limpio sin señalización en área de tránsito"
+    Acción: "Se coloca cinta adhesiva de color"
+    Salida: {"relacionada": 30, "grupo": 10, "corrige": 60, "informa": 0}
+
+21. Descripción: "Se cayó la canaleta del sistema eléctrico"
+    Acción: "Se reporta al soldador de mantenimiento"
+    Salida: {"relacionada": 30, "grupo": 10, "corrige": 0, "informa": 25}
+
+22. Descripción: "Canaleta eléctrica caída"
+    Acción: ""
+    Salida: {"relacionada": 30, "grupo": 10, "corrige": 0, "informa": 0}
+
+23. Descripción: "Temperatura normal en área de trabajo" (SIN RIESGO)
+    Acción: "Ninguna"
+    Salida: {"relacionada": 0, "grupo": 0, "corrige": 0, "informa": 0}
+
+24. Descripción: "Se acabó el café de la máquina" (SIN RIESGO)
+    Acción: "Se avisa a servicios generales"
+    Salida: {"relacionada": 0, "grupo": 0, "corrige": 0, "informa": 25}
+
+25. Descripción: "Oficina sin novedad" (SIN RIESGO)
+    Acción: "Ninguna"
+    Salida: {"relacionada": 0, "grupo": 0, "corrige": 0, "informa": 0}
+
+Ahora evalúa estos reportes USANDO LOS EJEMPLOS como guía:
 
 ${JSON.stringify(reportes, null, 2)}
 `;
@@ -120,19 +178,14 @@ ${JSON.stringify(reportes, null, 2)}
       }));
     }
 
-    // 🔥 RED DE SEGURIDAD: PALABRAS CLAVE SOLO PARA CASOS QUE LA IA NO DETECTÓ
-    // Esto NO sobrescribe, solo actúa cuando la IA devolvió TODO CEROS
-    
-    // Palabras de riesgo (amplias pero no sobrescriben)
-    const palabrasRiesgoEmergencia = [
-      "grasa", "suelo", "piso", "resbal", "caida", "cable", "fuga", 
-      "aceite", "canaleta", "faja", "quebrada", "ventilador", "temperatura",
-      "sobrecalienta", "chispa", "humo", "golpe", "atrap", "corte",
-      "electr", "caliente", "manguera", "tuberia", "arnes", "altura"
+    // 🔥 RED DE SEGURIDAD MÍNIMA (solo por si acaso)
+    const palabrasRiesgoBasico = [
+      "grasa", "suelo", "piso", "cable", "fuga", "electr", "canaleta",
+      "guardia", "control", "energia", "peligro", "lentes", "botas",
+      "extension", "desorden", "cristal", "hongo", "troquel", "faja"
     ];
-    
-    const palabrasCorrigeEmergencia = ["repar", "corrig", "instal", "cambi", "deten", "paro", "limpia", "reemplaz"];
-    const palabrasInformaEmergencia = ["report", "inform", "avis", "comunic", "notific"];
+    const palabrasCorrigeBasico = ["repar", "corrig", "cambi", "deten", "limpia", "ordena", "coloca"];
+    const palabrasInformaBasico = ["report", "inform", "avis", "notific"];
 
     const resultados = registros.map((r, i) => {
       let ev = evaluaciones[i] || {};
@@ -142,36 +195,27 @@ ${JSON.stringify(reportes, null, 2)}
       let corrige = ev.corrige === 60 ? 60 : 0;
       let informa = ev.informa === 25 ? 25 : 0;
       
-      // 🔥 SOLO si la IA no detectó NADA (todo ceros), aplicar reglas de emergencia
-      const iaNoDetectoNada = (relacionada === 0 && grupo === 0 && corrige === 0 && informa === 0);
-      
-      if (iaNoDetectoNada) {
-        const texto = normalizarTexto(r.descripcion || "");
-        const accion = normalizarTexto(r.accion || "");
+      // Emergencia: si la IA no detectó nada
+      if (relacionada === 0 && grupo === 0 && corrige === 0 && informa === 0) {
+        const texto = (r.descripcion || "").toLowerCase();
+        const accion = (r.accion || "").toLowerCase();
         
-        // Detectar riesgo por palabras clave (solo en emergencia)
-        if (palabrasRiesgoEmergencia.some(p => texto.includes(p))) {
+        if (palabrasRiesgoBasico.some(p => texto.includes(p))) {
           relacionada = 30;
           grupo = 10;
         }
         
-        // Detectar acción
-        if (palabrasCorrigeEmergencia.some(p => accion.includes(p))) {
+        if (palabrasCorrigeBasico.some(p => accion.includes(p))) {
           corrige = 60;
           informa = 0;
-        } else if (palabrasInformaEmergencia.some(p => accion.includes(p))) {
+        } else if (palabrasInformaBasico.some(p => accion.includes(p))) {
           informa = 25;
         }
       }
       
-      // 🔥 Reglas de consistencia (aplican siempre)
-      if (relacionada === 30 && grupo === 0) {
-        grupo = 10;
-      }
-      
-      if (corrige === 60 && informa !== 0) {
-        informa = 0;
-      }
+      // Reglas de consistencia
+      if (relacionada === 30 && grupo === 0) grupo = 10;
+      if (corrige === 60 && informa !== 0) informa = 0;
       
       const total = relacionada + grupo + corrige + informa;
       
