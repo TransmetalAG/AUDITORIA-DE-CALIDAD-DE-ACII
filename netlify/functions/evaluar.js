@@ -4,6 +4,28 @@ const client = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
+// 🔥 FUNCIÓN PARA NORMALIZAR TEXTO (corrige caracteres rotos y quita acentos)
+const normalizarTexto = (str) => {
+  if (!str) return "";
+  let texto = str.toString().toLowerCase();
+  
+  // Corregir caracteres rotos comunes (por mala codificación)
+  texto = texto.replace(/Ã¡/g, "á");
+  texto = texto.replace(/Ã©/g, "é");
+  texto = texto.replace(/Ã­/g, "í");
+  texto = texto.replace(/Ã³/g, "ó");
+  texto = texto.replace(/Ãº/g, "ú");
+  texto = texto.replace(/Ã±/g, "ñ");
+  texto = texto.replace(/Ã¼/g, "ü");
+  texto = texto.replace(/Ã/g, "");
+  texto = texto.replace(/Â/g, "");
+  
+  // Quitar acentos
+  texto = texto.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  
+  return texto.trim();
+};
+
 export const handler = async (event) => {
 
   if (event.httpMethod === "OPTIONS") {
@@ -74,11 +96,11 @@ ${JSON.stringify(reportes, null, 2)}
       }));
     }
 
-    // 🔥 PALABRAS CLAVE
+    // 🔥 PALABRAS CLAVE (AMPLIADAS)
     const palabrasInforma = ["report", "inform", "avis", "comunic", "traslad"];
     const palabrasCorrige = ["repar", "corrig", "ajust", "cambi", "deten", "paro"];
 
-    // 🔥 DETECTOR DE RIESGO
+    // 🔥 DETECTOR DE RIESGO (AMPLIADO con "canaleta")
     const palabrasRiesgo = [
       "herramienta", "rebaba", "cable", "fuga", "presion",
       "equipo", "defecto", "dañado", "golpe", "atrap",
@@ -86,7 +108,9 @@ ${JSON.stringify(reportes, null, 2)}
       "manguera", "conector", "tuberia", "arnes",
       "altura", "eslinga", "troquel", "ruido",
       "vibracion", "freno", "prensa", "esmeril",
-      "extintor", "lentes", "epp", "guante", "botas"
+      "extintor", "lentes", "epp", "guante", "botas",
+      // 🔥 NUEVA PALABRA CLAVE
+      "canaleta"
     ];
 
     const resultados = registros.map((r, i) => {
@@ -98,15 +122,12 @@ ${JSON.stringify(reportes, null, 2)}
       let corrige = ev.corrige === 60 ? 60 : 0;
       let informa = ev.informa === 25 ? 25 : 0;
 
-      const texto = (r.descripcion || "").toLowerCase();
-      const accion = (r.accion || "").toLowerCase();
+      // 🔥 NORMALIZAR texto ANTES de buscar (para detectar "eléctrico" aunque venga roto)
+      const texto = normalizarTexto(r.descripcion || "");
+      const accion = normalizarTexto(r.accion || "");
 
-      // 🔥 CORRECCIÓN DE IA
+      // 🔥 CORRECCIÓN POR PALABRAS CLAVE (ahora con texto normalizado)
       if (palabrasRiesgo.some(p => texto.includes(p))) {
-        relacionada = 30;
-      }
-
-      if (texto.includes("arnes") || texto.includes("altura")) {
         relacionada = 30;
       }
 
