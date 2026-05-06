@@ -20,81 +20,46 @@ export const handler = async (event) => {
   try {
     const { registros } = JSON.parse(event.body);
 
-    const reportes = registros.map((r, i) => ({
+    // Limitar a 50 reportes por vez para evitar timeout
+    const reportes = registros.slice(0, 50).map((r, i) => ({
       id: i,
-      descripcion: r.descripcion || "",
-      accion: r.accion || "",
+      descripcion: (r.descripcion || "").substring(0, 500),
+      accion: (r.accion || "").substring(0, 500),
     }));
 
-    // 🔥 PROMPT ACTUALIZADO (con énfasis en verbos en pasado)
+    // 🔥 PROMPT CORTO Y EFECTIVO
     const prompt = `
-Eres un auditor SISO experto en seguridad industrial.
+Eres auditor SISO. Devuelve SOLO JSON array.
 
-Debes evaluar cada reporte y devolver SOLO un array JSON con este formato:
-{"relacionada": 0-30, "grupo": 0-10, "corrige": 0-60, "informa": 0-25}
+REGLAS:
+- relacionada=30 si hay riesgo (grasa, cable, fuga, guarda, lentes, hongo, esmeril+oxicorte)
+- grupo=10 si afecta personas
+- corrige=60 si la acción YA SE HIZO (verbo pasado: se reparó, se cambió, se limpió, se movió, se apagó, se detuvo)
+- informa=25 si solo reporta
+- NUNCA corrige e informa juntos
 
-REGLAS ESTRICTAS:
-- relacionada = 30 si hay una CONDICIÓN INSEGURA o ACTO INSEGURO (riesgo de accidente)
-- grupo = 10 si afecta a personas o un área específica
-- corrige = 60 SOLO si la acción YA FUE EJECUTADA (verbos en pasado: "se reparó", "se cambió", "se limpió", "se ordenó", "se separaron", "se procedió a...", "se realizó", "se detuvo")
-- NO dar corrige=60 si la acción está en imperativo ("reparar", "cambiar", "separar", "limpiar", "ordenar") o futuro ("se programará", "se planificará", "se solicitará", "se agendará")
-- informa = 25 si la acción solo COMUNICA (reportar, avisar, notificar)
-- NUNCA poner corrige e informa juntos. Si corrige=60, informa=0
+EJEMPLOS:
+1. Grasa en suelo + "Se reporta" → {"relacionada":30,"grupo":10,"corrige":0,"informa":25}
+2. Cable suelto + "Se repara" → {"relacionada":30,"grupo":10,"corrige":60,"informa":0}
+3. Falta guarda + "" → {"relacionada":30,"grupo":10,"corrige":0,"informa":0}
+4. Esmeril+oxicorte + "Separar equipos" → {"relacionada":30,"grupo":10,"corrige":0,"informa":0}
+5. Esmeril+oxicorte + "Se separaron" → {"relacionada":30,"grupo":10,"corrige":60,"informa":0}
+6. Dispensador agua + "Se reporta" → {"relacionada":0,"grupo":0,"corrige":0,"informa":25}
+7. Sin lentes + "" → {"relacionada":30,"grupo":10,"corrige":0,"informa":0}
+8. Sin lentes + "Se los colocó" → {"relacionada":30,"grupo":10,"corrige":60,"informa":0}
 
-EJEMPLOS (aprende de estos casos):
-
-1. Descripción: "Cable eléctrico suelto en pasillo"
-   Acción: "Se repara el cable"
-   Salida: {"relacionada": 30, "grupo": 10, "corrige": 60, "informa": 0}  // PASADO
-
-2. Descripción: "Grasa en el suelo del área de producción"
-   Acción: "Se reporta a supervisor"
-   Salida: {"relacionada": 30, "grupo": 10, "corrige": 0, "informa": 25}
-
-3. Descripción: "Falta de guarda en la parte del encoiler"
-   Acción: ""
-   Salida: {"relacionada": 30, "grupo": 10, "corrige": 0, "informa": 0}
-
-4. Descripción: "Esmeril está muy cerca de equipo de oxicorte"
-   Acción: "Separar los equipos"  (IMPERATIVO, NO EJECUTADO)
-   Salida: {"relacionada": 30, "grupo": 10, "corrige": 0, "informa": 0}  // 40 puntos
-
-5. Descripción: "Esmeril está muy cerca de equipo de oxicorte"
-   Acción: "Se separaron los equipos"  (PASADO, EJECUTADO)
-   Salida: {"relacionada": 30, "grupo": 10, "corrige": 60, "informa": 0}  // 100 puntos
-
-6. Descripción: "Carro obstaculizando el paso"
-   Acción: "Se movió inmediatamente"
-   Salida: {"relacionada": 30, "grupo": 10, "corrige": 60, "informa": 0}
-
-7. Descripción: "Carro obstaculizando el paso"
-   Acción: "Mover el carro"
-   Salida: {"relacionada": 30, "grupo": 10, "corrige": 0, "informa": 0}
-
-8. Descripción: "Dispensador de agua no sirve" (SIN RIESGO)
-   Acción: "Se reporta"
-   Salida: {"relacionada": 0, "grupo": 0, "corrige": 0, "informa": 25}
-
-9. Descripción: "Dispensador de agua no sirve, puede causar fatiga por calor extremo"
-   Acción: "Se reporta"
-   Salida: {"relacionada": 30, "grupo": 10, "corrige": 0, "informa": 25}
-
-10. Descripción: "Temperatura normal en área de trabajo" (SIN RIESGO)
-    Acción: "Ninguna"
-    Salida: {"relacionada": 0, "grupo": 0, "corrige": 0, "informa": 0}
-
-Ahora evalúa estos reportes USANDO LOS EJEMPLOS como guía:
-
+Reportes:
 ${JSON.stringify(reportes, null, 2)}
 `;
 
     const completion = await client.chat.completions.create({
       model: "gpt-4o-mini",
       messages: [
-        { role: "system", content: "Eres un auditor SISO. Responde SOLO con el JSON, sin explicaciones." },
+        { role: "system", content: "Responde solo JSON." },
         { role: "user", content: prompt }
       ],
       temperature: 0,
+      max_tokens: 2000,
     });
 
     let contenido = completion.choices[0].message.content
@@ -119,34 +84,24 @@ ${JSON.stringify(reportes, null, 2)}
       }));
     }
 
-    // 🔥 PALABRAS PARA DETECTAR ACCIONES REALMENTE EJECUTADAS (PASADO)
-    const palabrasAccionEjecutada = [
-      "se reparo", "se reparó", "se cambió", "se cambio", "se limpio", "se limpió",
-      "se ordeno", "se ordenó", "se movio", "se movió", "se separaron", "se procedio",
-      "se procedió", "se realizo", "se realizó", "se detuvo", "se apago", "se apagó",
-      "se coloco", "se colocó", "se quito", "se quitó", "se corrigio", "se corrigió",
-      "se fabrico", "se fabricó", "se instalo", "se instaló", "se hizo", "se iso"
-    ];
-    
-    // 🔥 PALABRAS QUE INDICAN INTENCIÓN O FUTURO (NO CORRIGE)
-    const palabrasIntencion = [
-      "programar", "planificar", "agendar", "solicitar", "separar", "mover", 
-      "limpiar", "ordenar", "reparar", "cambiar", "colocar", "quitarlo", 
-      "hay que", "se debe", "sería bueno", "se necesita", "favor de",
-      "se programara", "se planificara", "se agendara", "se solicitara"
-    ];
-    
-    // 🔥 PALABRAS DE RIESGO (ampliadas)
-    const palabrasRiesgoBasico = [
+    // 🔥 PALABRAS CLAVE SIMPLIFICADAS
+    const palabrasRiesgo = [
       "grasa", "suelo", "piso", "cable", "fuga", "electr", "canaleta",
-      "guardia", "control", "energia", "peligro", "lentes", "botas",
-      "extension", "desorden", "cristal", "hongo", "troquel", "faja",
-      "esmeril", "oxicorte", "inflamable", "incendio", "explosion", "gas",
-      "cilindro", "solvente", "aceite", "derrame", "caida", "tropiezo",
-      "pernos", "alfombra", "escalera", "prensa", "resguardo"
+      "guardia", "energia", "lentes", "botas", "desorden", "cristal", 
+      "hongo", "troquel", "esmeril", "oxicorte", "derrame", "caida"
     ];
     
-    const palabrasInformaBasico = ["report", "inform", "avis", "notific", "comunic"];
+    const palabrasEjecutado = [
+      "se reparo", "se reparó", "se cambio", "se cambió", "se limpio", "se limpió",
+      "se ordeno", "se ordenó", "se movio", "se movió", "se separaron", "se apago",
+      "se apagó", "se hizo", "se iso", "se detuvo", "se coloco", "se colocó"
+    ];
+    
+    const palabrasIntencion = [
+      "programar", "planificar", "agendar", "separar", "mover", "limpiar", "ordenar"
+    ];
+    
+    const palabrasInforma = ["report", "inform", "avis", "notific", "comunic"];
 
     const resultados = registros.map((r, i) => {
       let ev = evaluaciones[i] || {};
@@ -159,37 +114,35 @@ ${JSON.stringify(reportes, null, 2)}
       const texto = (r.descripcion || "").toLowerCase();
       const accion = (r.accion || "").toLowerCase();
       
-      // 🔥 SOLO si la IA no detectó nada, aplicar reglas de emergencia
+      // Emergencia: si IA no detectó nada
       if (relacionada === 0 && grupo === 0 && corrige === 0 && informa === 0) {
         
-        // Detectar riesgo
-        if (palabrasRiesgoBasico.some(p => texto.includes(p))) {
+        if (palabrasRiesgo.some(p => texto.includes(p))) {
           relacionada = 30;
           grupo = 10;
         }
         
-        // 🔥 DETECTAR SI LA ACCIÓN YA FUE EJECUTADA (PASADO)
-        const esAccionEjecutada = palabrasAccionEjecutada.some(p => accion.includes(p));
+        const yaEjecutado = palabrasEjecutado.some(p => accion.includes(p));
         const esIntencion = palabrasIntencion.some(p => accion.includes(p));
         
-        if (esAccionEjecutada && !esIntencion) {
+        if (yaEjecutado && !esIntencion) {
           corrige = 60;
           informa = 0;
-        } else if (palabrasInformaBasico.some(p => accion.includes(p))) {
+        } else if (palabrasInforma.some(p => accion.includes(p))) {
           informa = 25;
         }
       }
       
-      // 🔥 REGLAS DE CONSISTENCIA
+      // Consistencia
       if (relacionada === 30 && grupo === 0) grupo = 10;
       if (corrige === 60) informa = 0;
       
-      // 🔥 VALIDACIÓN FINAL: Si la acción es intención, anular corrige
-      const accion = (r.accion || "").toLowerCase();
-      const esIntencionFinal = palabrasIntencion.some(p => accion.includes(p));
-      const noEsEjecutada = !palabrasAccionEjecutada.some(p => accion.includes(p));
+      // Validación final para intenciones
+      const accionLower = (r.accion || "").toLowerCase();
+      const esIntencionFinal = palabrasIntencion.some(p => accionLower.includes(p));
+      const noEjecutado = !palabrasEjecutado.some(p => accionLower.includes(p));
       
-      if (esIntencionFinal && noEsEjecutada && corrige === 60) {
+      if (esIntencionFinal && noEjecutado && corrige === 60) {
         corrige = 0;
       }
       
@@ -218,7 +171,7 @@ ${JSON.stringify(reportes, null, 2)}
     };
 
   } catch (error) {
-    console.error("❌ Error:", error);
+    console.error("Error:", error);
     return {
       statusCode: 500,
       headers: {
