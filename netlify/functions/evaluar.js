@@ -6,6 +6,7 @@ const client = new OpenAI({
 
 export const handler = async (event) => {
 
+  // 🔥 CORS
   if (event.httpMethod === "OPTIONS") {
     return {
       statusCode: 204,
@@ -35,11 +36,11 @@ export const handler = async (event) => {
     const prompt = `
 Eres un auditor corporativo SISO experto en seguridad industrial.
 
-Analiza reportes ACII de plantas industriales.
+Analiza reportes ACII de plantas industriales reales.
 
-Debes evaluar usando criterio profesional REAL.
+Debes evaluar usando criterio PROFESIONAL REAL.
 
-=========================
+=================================================
 CRITERIOS
 
 1. relacionada = 30
@@ -48,20 +49,21 @@ Asignar 30 si existe:
 - acto inseguro
 - condición insegura
 - riesgo potencial de lesión
-- posibilidad de:
-  - caída
-  - golpe
-  - corte
-  - atrapamiento
-  - incendio
-  - explosión
-  - descarga eléctrica
-  - exposición química
-  - daño respiratorio
-  - proyección de partículas
-  - falla de equipo
-  - falla de protección
-  - riesgo operativo
+- riesgo operativo
+- riesgo mecánico
+- riesgo eléctrico
+- riesgo químico
+- riesgo ergonómico
+- riesgo de caída
+- riesgo de tropiezo
+- riesgo de golpe
+- riesgo de atrapamiento
+- riesgo de incendio
+- riesgo de explosión
+- riesgo respiratorio
+- riesgo por presión
+- falla de equipo
+- falla de protección
 
 IMPORTANTE:
 La falta de uso correcto de EPP SIEMPRE es acto inseguro.
@@ -74,24 +76,35 @@ Incluye:
 - arnés
 - tapones auditivos
 - botas
-- protección auditiva
 - chaleco
 - careta
+- polainas
+- gabacha
+- protección facial
 
 También considerar riesgo:
-- escalones dañados
-- ruedas dañadas
 - fugas
+- derrames
+- ruedas dañadas
+- escalones dañados
+- cables
 - tableros eléctricos
-- herramientas inadecuadas
-- equipos defectuosos
-- esmeril cerca de oxicorte
-- presión neumática
-- trabajos en altura
-- eslingas mal usadas
-- troqueladoras defectuosas
+- troqueladoras
+- esmeril
+- oxicorte
+- montacargas
+- obstáculos
+- carros dañados
+- herramientas tiradas
+- desorden excesivo
+- fugas neumáticas
+- químicos sin identificación
+- estanterías sin anclaje
+- guardas dañadas
+- mangueras atravesadas
+- superficies deslizantes
 
-=========================
+=================================================
 
 2. grupo = 10
 
@@ -104,60 +117,81 @@ Asignar 10 si:
 
 Si relacionada = 30 normalmente grupo también debe ser 10.
 
-=========================
+=================================================
 
 3. corrige = 60
 
 Asignar 60 SOLO si:
 el riesgo YA FUE eliminado o controlado físicamente.
 
+SOLO usar corrige cuando:
+- ya repararon
+- ya instalaron
+- ya limpiaron
+- ya retiraron
+- ya bloquearon
+- ya separaron
+- ya reemplazaron
+- ya corrigieron
+- ya sujetaron
+- ya apagaron
+- ya detuvieron
+- ya colocaron protección
+- ya cambiaron pieza/equipo
+
 Ejemplos válidos:
-- reparar
-- reemplazar
-- instalar
-- cambiar
-- limpiar
-- retirar
-- bloquear
-- separar
-- apagar
-- detener
-- corregir
-- sujetar
-- ordenar
-- colocar protección
+- se limpió
+- se cambió
+- se reparó
+- se retiró
+- se movió
+- se bloquearon energías
+- se instalaron guardas
+- se colocó señalización
+- se aseguraron piezas
 
 NO usar corrige si:
-- solo se reporta
+- se reporta
 - se avisa
 - se informa
 - se solicita
 - se programa
 - se coordina
+- se planifica
+- se agenda
+- se dará seguimiento
 - se retroalimenta
 - se aborda al colaborador
 - se pide apoyo
 - queda pendiente
+- “favor revisar”
+- “favor corregir”
 
 IMPORTANTE:
 “reportar” NUNCA es corrección.
 “avisar” NUNCA es corrección.
 “retroalimentar” NO es corrección física.
+“programar” NO significa que ya se corrigió.
+“agendar” NO significa que ya se corrigió.
+“planificar” NO significa que ya se corrigió.
 
-=========================
+=================================================
 
 4. informa = 25
 
 Asignar 25 si:
 - solo se comunica
 - solo se reporta
-- se informa
-- se avisa
+- solo se informa
+- solo se avisa
 - se solicita seguimiento
 - se escala
 - queda pendiente
+- se coordina
+- se planifica
+- se agenda
 
-=========================
+=================================================
 
 REGLAS IMPORTANTES
 
@@ -165,8 +199,11 @@ REGLAS IMPORTANTES
 - Si el riesgo sigue existiendo → NO usar corrige.
 - Si la acción solo comunica → usar informa.
 - Si corrigieron físicamente → normalmente existía riesgo.
+- Si se usa EPP incorrectamente → relacionada=30.
+- Si existe derrame o fuga → relacionada=30.
+- Si existe riesgo de caída/tropiezo → relacionada=30.
 
-=========================
+=================================================
 
 EJEMPLOS
 
@@ -223,7 +260,40 @@ Se reporta
 Salida:
 {"relacionada":30,"grupo":10,"corrige":0,"informa":25}
 
-=========================
+---
+
+Descripción:
+Herramientas tiradas en el suelo
+
+Acción:
+Aplicar 5S
+
+Salida:
+{"relacionada":30,"grupo":10,"corrige":0,"informa":25}
+
+---
+
+Descripción:
+Rejillas necesitan pintura amarilla
+
+Acción:
+Agendar pintura
+
+Salida:
+{"relacionada":30,"grupo":10,"corrige":0,"informa":25}
+
+---
+
+Descripción:
+Ducha lava ojos inexistente
+
+Acción:
+Comprar e instalar ducha lava ojos
+
+Salida:
+{"relacionada":30,"grupo":10,"corrige":60,"informa":0}
+
+=================================================
 
 RESPONDE SOLO JSON VÁLIDO
 
@@ -248,7 +318,7 @@ ${JSON.stringify(reportes, null, 2)}
         {
           role: "system",
           content:
-            "Eres un auditor corporativo SISO. Responde SOLO JSON válido."
+            "Eres un auditor corporativo SISO experto. Responde SOLO JSON válido."
         },
         {
           role: "user",
@@ -270,7 +340,7 @@ ${JSON.stringify(reportes, null, 2)}
 
     } catch {
 
-      const match = contenido.match(/\[[\s\S]*\]/);
+      const match = contenido.match(/\[[\\s\\S]*\\]/);
 
       if (match) {
         evaluaciones = JSON.parse(match[0]);
@@ -298,6 +368,9 @@ ${JSON.stringify(reportes, null, 2)}
       let corrige = ev.corrige === 60 ? 60 : 0;
       let informa = ev.informa === 25 ? 25 : 0;
 
+      const descripcion = (r.descripcion || "").toLowerCase();
+      const accion = (r.accion || "").toLowerCase();
+
       // 🔥 Nunca corrige e informa juntos
       if (corrige === 60) {
         informa = 0;
@@ -314,28 +387,70 @@ ${JSON.stringify(reportes, null, 2)}
         grupo = 10;
       }
 
-      // 🔥 Casos administrativos reales
-      const texto = (
-        (r.descripcion || "") + " " + (r.accion || "")
-      ).toLowerCase();
+      // 🔥 Si acción es solo administrativa → NO corregir
+      const accionesAdministrativas = [
+        "program",
+        "agend",
+        "coord",
+        "solicit",
+        "seguimiento",
+        "report",
+        "avis",
+        "inform",
+        "retroaliment",
+        "abord",
+        "planific"
+      ];
 
+      if (
+        corrige === 60 &&
+        accionesAdministrativas.some(p =>
+          accion.includes(p)
+        ) &&
+        !accion.includes("se limp") &&
+        !accion.includes("se repar") &&
+        !accion.includes("se cambi") &&
+        !accion.includes("se instal") &&
+        !accion.includes("se coloc") &&
+        !accion.includes("se mov") &&
+        !accion.includes("se retir")
+      ) {
+
+        corrige = 0;
+        informa = 25;
+      }
+
+      // 🔥 Casos administrativos reales NO SISO
       const noSiso = [
         "café",
         "cafe",
-        "agua pura",
         "oficina sin novedad"
       ];
 
       if (
-        noSiso.some(p => texto.includes(p)) &&
-        !texto.includes("golpe de calor")
+        noSiso.some(p => descripcion.includes(p))
       ) {
 
         relacionada = 0;
         grupo = 0;
+        corrige = 0;
+      }
 
-        if (corrige === 60) {
-          corrige = 0;
+      // 🔥 Ducha lava ojos SI es SISO
+      if (
+        descripcion.includes("lava ojos") ||
+        descripcion.includes("lavaojos")
+      ) {
+
+        relacionada = 30;
+        grupo = 10;
+
+        if (
+          accion.includes("instal") ||
+          accion.includes("compr")
+        ) {
+          corrige = 60;
+          informa = 0;
         }
       }
 
