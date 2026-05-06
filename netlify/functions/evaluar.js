@@ -26,7 +26,7 @@ export const handler = async (event) => {
       accion: r.accion || "",
     }));
 
-    // 🔥 PROMPT DEFINITIVO CON 25 EJEMPLOS
+    // 🔥 PROMPT DEFINITIVO CON 28 EJEMPLOS (agregados 3 nuevos)
     const prompt = `
 Eres un auditor SISO experto en seguridad industrial.
 
@@ -36,7 +36,7 @@ Debes evaluar cada reporte y devolver SOLO un array JSON con este formato:
 REGLAS ESTRICTAS:
 - relacionada = 30 si hay una CONDICIÓN INSEGURA o ACTO INSEGURO (riesgo de accidente)
 - grupo = 10 si afecta a personas o un área específica
-- corrige = 60 si la acción SOLUCIONA el problema (reparar, instalar, cambiar, detener, limpiar, ordenar)
+- corrige = 60 si la acción SOLUCIONA el problema (reparar, instalar, cambiar, detener, limpiar, ordenar, separar, bloquear)
 - informa = 25 si la acción solo COMUNICA (reportar, avisar, notificar)
 - NUNCA poner corrige e informa juntos. Si corrige=60, informa=0
 
@@ -130,15 +130,27 @@ EJEMPLOS (aprende de estos casos):
     Acción: ""
     Salida: {"relacionada": 30, "grupo": 10, "corrige": 0, "informa": 0}
 
-23. Descripción: "Temperatura normal en área de trabajo" (SIN RIESGO)
+23. Descripción: "Esmeril está muy cerca de equipo de oxicorte"
+    Acción: "Separar los equipos"
+    Salida: {"relacionada": 30, "grupo": 10, "corrige": 60, "informa": 0}
+
+24. Descripción: "Esmeril cerca de material inflamable (trapos con aceite, solventes)"
+    Acción: "Se aleja el esmeril o se retira el material inflamable"
+    Salida: {"relacionada": 30, "grupo": 10, "corrige": 60, "informa": 0}
+
+25. Descripción: "Cilindros de gas sin sujetar"
+    Acción: "Se sujetan los cilindros"
+    Salida: {"relacionada": 30, "grupo": 10, "corrige": 60, "informa": 0}
+
+26. Descripción: "Temperatura normal en área de trabajo" (SIN RIESGO)
     Acción: "Ninguna"
     Salida: {"relacionada": 0, "grupo": 0, "corrige": 0, "informa": 0}
 
-24. Descripción: "Se acabó el café de la máquina" (SIN RIESGO)
+27. Descripción: "Se acabó el café de la máquina" (SIN RIESGO)
     Acción: "Se avisa a servicios generales"
     Salida: {"relacionada": 0, "grupo": 0, "corrige": 0, "informa": 25}
 
-25. Descripción: "Oficina sin novedad" (SIN RIESGO)
+28. Descripción: "Oficina sin novedad" (SIN RIESGO)
     Acción: "Ninguna"
     Salida: {"relacionada": 0, "grupo": 0, "corrige": 0, "informa": 0}
 
@@ -178,13 +190,16 @@ ${JSON.stringify(reportes, null, 2)}
       }));
     }
 
-    // 🔥 RED DE SEGURIDAD MÍNIMA (solo por si acaso)
+    // 🔥 RED DE SEGURIDAD (ampliada para riesgos de incendio/explosión)
     const palabrasRiesgoBasico = [
       "grasa", "suelo", "piso", "cable", "fuga", "electr", "canaleta",
       "guardia", "control", "energia", "peligro", "lentes", "botas",
-      "extension", "desorden", "cristal", "hongo", "troquel", "faja"
+      "extension", "desorden", "cristal", "hongo", "troquel", "faja",
+      // 🔥 NUEVAS PALABRAS PARA RIESGOS DE INCENDIO/EXPLOSIÓN
+      "esmeril", "oxicorte", "inflamable", "incendio", "explosion", "gas",
+      "cilindro", "sujetar", "solvente", "aceite", "trapo", "combustible"
     ];
-    const palabrasCorrigeBasico = ["repar", "corrig", "cambi", "deten", "limpia", "ordena", "coloca"];
+    const palabrasCorrigeBasico = ["repar", "corrig", "cambi", "deten", "limpia", "ordena", "coloca", "separa", "aleja", "sujeta"];
     const palabrasInformaBasico = ["report", "inform", "avis", "notific"];
 
     const resultados = registros.map((r, i) => {
