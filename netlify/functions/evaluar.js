@@ -31,22 +31,19 @@ export const handler = async (event) => {
       accion: r.accion || "",
     }));
 
-    // 🔥 NUEVO PROMPT BASADO EN PRINCIPIOS
+    // 🔥 PROMPT MEJORADO
     const prompt = `
 Eres un auditor corporativo SISO experto en seguridad industrial.
 
-Tu trabajo es analizar reportes ACII de diferentes plantas industriales.
+Analiza reportes ACII de plantas industriales.
 
-Debes evaluar usando CRITERIO PROFESIONAL REAL.
-
-IMPORTANTE:
-No dependas de palabras exactas.
-Debes interpretar el CONTEXTO y el RIESGO IMPLÍCITO.
+Debes evaluar usando criterio profesional REAL.
 
 =========================
 CRITERIOS
 
 1. relacionada = 30
+
 Asignar 30 si existe:
 - acto inseguro
 - condición insegura
@@ -61,22 +58,38 @@ Asignar 30 si existe:
   - descarga eléctrica
   - exposición química
   - daño respiratorio
-  - daño ergonómico
-  - quemaduras
   - proyección de partículas
   - falla de equipo
   - falla de protección
   - riesgo operativo
 
-NO limitarse a palabras específicas.
+IMPORTANTE:
+La falta de uso correcto de EPP SIEMPRE es acto inseguro.
 
-Ejemplos:
-- escalones dañados → riesgo de caída
-- arnés mal usado → riesgo de caída
-- herramienta inadecuada → riesgo de golpe/corte
-- rebaba → riesgo de corte
-- fuga → riesgo potencial
-- cable atravesado → riesgo de tropiezo/electrocución
+Incluye:
+- mascarilla
+- lentes
+- guantes
+- casco
+- arnés
+- tapones auditivos
+- botas
+- protección auditiva
+- chaleco
+- careta
+
+También considerar riesgo:
+- escalones dañados
+- ruedas dañadas
+- fugas
+- tableros eléctricos
+- herramientas inadecuadas
+- equipos defectuosos
+- esmeril cerca de oxicorte
+- presión neumática
+- trabajos en altura
+- eslingas mal usadas
+- troqueladoras defectuosas
 
 =========================
 
@@ -84,10 +97,10 @@ Ejemplos:
 
 Asignar 10 si:
 - afecta personas
-- afecta área operativa
+- afecta colaboradores
 - afecta tránsito
 - afecta operación
-- afecta colaboradores
+- afecta área operativa
 
 Si relacionada = 30 normalmente grupo también debe ser 10.
 
@@ -95,9 +108,10 @@ Si relacionada = 30 normalmente grupo también debe ser 10.
 
 3. corrige = 60
 
-Asignar 60 SOLO si la acción YA ELIMINÓ o CONTROLÓ el riesgo físicamente.
+Asignar 60 SOLO si:
+el riesgo YA FUE eliminado o controlado físicamente.
 
-Ejemplos:
+Ejemplos válidos:
 - reparar
 - reemplazar
 - instalar
@@ -109,19 +123,39 @@ Ejemplos:
 - apagar
 - detener
 - corregir
+- sujetar
+- ordenar
+- colocar protección
+
+NO usar corrige si:
+- solo se reporta
+- se avisa
+- se informa
+- se solicita
+- se programa
+- se coordina
+- se retroalimenta
+- se aborda al colaborador
+- se pide apoyo
+- queda pendiente
+
+IMPORTANTE:
+“reportar” NUNCA es corrección.
+“avisar” NUNCA es corrección.
+“retroalimentar” NO es corrección física.
 
 =========================
 
 4. informa = 25
 
 Asignar 25 si:
-- solo se reporta
 - solo se comunica
+- solo se reporta
+- se informa
 - se avisa
 - se solicita seguimiento
 - se escala
-- se traslada
-- queda pendiente de corrección
+- queda pendiente
 
 =========================
 
@@ -130,12 +164,64 @@ REGLAS IMPORTANTES
 - Nunca usar corrige=60 e informa=25 juntos.
 - Si el riesgo sigue existiendo → NO usar corrige.
 - Si la acción solo comunica → usar informa.
-- No todo es SISO:
-  - café
-  - agua
-  - comodidad
-  - oficina sin riesgo
-NO deben marcarse como relacionadas.
+- Si corrigieron físicamente → normalmente existía riesgo.
+
+=========================
+
+EJEMPLOS
+
+Descripción:
+Colaborador sin mascarilla en área operativa
+
+Acción:
+Se aborda y retroalimenta sobre uso de EPP
+
+Salida:
+{"relacionada":30,"grupo":10,"corrige":0,"informa":25}
+
+---
+
+Descripción:
+Cable expuesto en pasillo
+
+Acción:
+Se reporta a mantenimiento
+
+Salida:
+{"relacionada":30,"grupo":10,"corrige":0,"informa":25}
+
+---
+
+Descripción:
+Cable expuesto en pasillo
+
+Acción:
+Se reemplaza el cable
+
+Salida:
+{"relacionada":30,"grupo":10,"corrige":60,"informa":0}
+
+---
+
+Descripción:
+Aceite derramado en área de paso
+
+Acción:
+Se limpia inmediatamente
+
+Salida:
+{"relacionada":30,"grupo":10,"corrige":60,"informa":0}
+
+---
+
+Descripción:
+Montacargas circula en área restringida
+
+Acción:
+Se reporta
+
+Salida:
+{"relacionada":30,"grupo":10,"corrige":0,"informa":25}
 
 =========================
 
@@ -179,7 +265,9 @@ ${JSON.stringify(reportes, null, 2)}
     let evaluaciones = [];
 
     try {
+
       evaluaciones = JSON.parse(contenido);
+
     } catch {
 
       const match = contenido.match(/\[[\s\S]*\]/);
@@ -200,7 +288,7 @@ ${JSON.stringify(reportes, null, 2)}
       }));
     }
 
-    // 🔥 SOLO VALIDACIONES DE CONSISTENCIA
+    // 🔥 VALIDACIONES DE CONSISTENCIA
     const resultados = registros.map((r, i) => {
 
       const ev = evaluaciones[i] || {};
@@ -210,17 +298,23 @@ ${JSON.stringify(reportes, null, 2)}
       let corrige = ev.corrige === 60 ? 60 : 0;
       let informa = ev.informa === 25 ? 25 : 0;
 
-      // 🔥 CONSISTENCIA
+      // 🔥 Nunca corrige e informa juntos
       if (corrige === 60) {
         informa = 0;
       }
 
-      // 🔥 si hay riesgo normalmente hay grupo
+      // 🔥 Si hay riesgo normalmente hay grupo
       if (relacionada === 30 && grupo === 0) {
         grupo = 10;
       }
 
-      // 🔥 evitar administrativos absurdos
+      // 🔥 Si corrigió físicamente → había riesgo
+      if (corrige === 60 && relacionada === 0) {
+        relacionada = 30;
+        grupo = 10;
+      }
+
+      // 🔥 Casos administrativos reales
       const texto = (
         (r.descripcion || "") + " " + (r.accion || "")
       ).toLowerCase();
@@ -228,7 +322,6 @@ ${JSON.stringify(reportes, null, 2)}
       const noSiso = [
         "café",
         "cafe",
-        "dispensador",
         "agua pura",
         "oficina sin novedad"
       ];
@@ -237,6 +330,7 @@ ${JSON.stringify(reportes, null, 2)}
         noSiso.some(p => texto.includes(p)) &&
         !texto.includes("golpe de calor")
       ) {
+
         relacionada = 0;
         grupo = 0;
 
