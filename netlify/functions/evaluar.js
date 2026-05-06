@@ -4,8 +4,158 @@ const client = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-export const handler = async (event) => {
+// 🔥 FUNCIÓN DE NORMALIZACIÓN (corrige caracteres rotos y quita acentos)
+const normalizarTexto = (str) => {
+  if (!str) return "";
+  return str
+    .toString()
+    .toLowerCase()
+    // Corregir caracteres rotos comunes (por mala codificación)
+    .replace(/Ã¡/g, "á")
+    .replace(/Ã©/g, "é")
+    .replace(/Ã­/g, "í")
+    .replace(/Ã³/g, "ó")
+    .replace(/Ãº/g, "ú")
+    .replace(/Ã±/g, "ñ")
+    .replace(/Ã¼/g, "ü")
+    .replace(/Ã/g, "")
+    .replace(/Â/g, "")
+    // Quitar acentos
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    // Eliminar caracteres especiales no deseados
+    .replace(/[^a-z0-9\s]/g, "")
+    .trim();
+};
 
+// 🔥 PALABRAS CLAVE AMPLIADAS
+const palabrasRiesgo = [
+  // Riesgos físicos
+  "herramienta", "rebaba", "cable", "fuga", "presion",
+  "equipo", "defecto", "dañado", "golpe", "atrap",
+  "corte", "electr", "caliente", "aceite", "manguera",
+  "conector", "tuberia", "arnes", "altura", "eslinga",
+  "troquel", "ruido", "vibracion", "freno", "prensa",
+  "esmeril", "extintor", "lentes", "epp", "guante", "botas",
+  // NUEVAS PALABRAS (CRÍTICAS)
+  "canaleta", "escalera", "andamio", "baranda", "quimico",
+  "derrame", "suelo", "iluminacion", "ventilacion", "señalizacion",
+  "guardia", "resguardo", "emergencia", "pasillo", "acceso",
+  "bloqueado", "obstruccion", "caida", "resbal", "tro pieza",
+  "faja", "quebrada", "ventilador", "sobrecalienta", "chispa",
+  "explosion", "incendio", "humo", "gases", "polvo", "liquido"
+];
+
+const palabrasCorrige = [
+  "repar", "corrig", "ajust", "cambi", "deten", "paro",
+  "colocara", "colocará", "instal", "soldador", "reemplaz",
+  "arregl", "solucion", "limpio", "ordeno", "reubico"
+];
+
+const palabrasInforma = [
+  "report", "inform", "avis", "comunic", "traslad",
+  "comento", "dijo", "notifico", "aviso"
+];
+
+// 🔥 Función para evaluar con reglas (más rápido y preciso)
+const evaluarConReglas = (descripcion, accion) => {
+  const textoNormalizado = normalizarTexto(descripcion);
+  const accionNormalizada = normalizarTexto(accion);
+  
+  let relacionada = 0;
+  let grupo = 0;
+  let corrige = 0;
+  let informa = 0;
+  let usadoReglas = false;
+
+  // 1. Detectar RIESGO por palabras clave
+  const riesgoEncontrado = palabrasRiesgo.some(p => textoNormalizado.includes(p));
+  
+  if (riesgoEncontrado) {
+    relacionada = 30;
+    grupo = 10;  // Si hay riesgo, siempre afecta grupo
+    usadoReglas = true;
+    console.log(`✅ [REGLAS] Riesgo detectado en: "${textoNormalizado}"`);
+  }
+
+  // 2. Detectar ACCIÓN
+  const corrigeEncontrado = palabrasCorrige.some(p => accionNormalizada.includes(p));
+  const informaEncontrado = palabrasInforma.some(p => accionNormalizada.includes(p));
+
+  if (corrigeEncontrado) {
+    corrige = 60;
+    informa = 0;
+    usadoReglas = true;
+    console.log(`✅ [REGLAS] Acción correctiva detectada: "${accionNormalizada}"`);
+  } else if (informaEncontrado) {
+    informa = 25;
+    usadoReglas = true;
+    console.log(`✅ [REGLAS] Acción informativa detectada: "${accionNormalizada}"`);
+  }
+
+  // Si no se detectó acción pero hay riesgo, al menos informa algo
+  if (relacionada === 30 && corrige === 0 && informa === 0 && !corrigeEncontrado && !informaEncontrado) {
+    informa = 25;
+    console.log(`⚠️ [REGLAS] Riesgo sin acción clara → se asigna como "informa"`);
+  }
+
+  return { relacionada, grupo, corrige, informa, usadoReglas };
+};
+
+// 🔥 Función para evaluar con IA (solo casos ambiguos)
+const evaluarConIA = async (reportes) => {
+  const prompt = `
+Eres un auditor SISO experto en seguridad industrial.
+
+Evalúa CADA reporte y devuelve SOLO un array JSON con este formato EXACTO:
+
+[
+  { "relacionada": 30, "grupo": 10, "corrige": 60, "informa": 0 },
+  { "relacionada": 0, "grupo": 0, "corrige": 0, "informa": 25 }
+]
+
+REGLAS ESTRICTAS:
+- relacionada = 30 si el reporte describe un riesgo de seguridad (golpes, caídas, eléctrico, incendio, etc.)
+- grupo = 10 si el riesgo afecta a personas o un área específica (si relacionada=30, grupo=10 automático)
+- corrige = 60 si la acción inmediata SOLUCIONA el problema (reparar, instalar, cambiar, detener)
+- informa = 25 si la acción solo COMUNICA el problema (reportar, avisar, notificar)
+- NUNCA asignar corrige e informa juntos. Si corrige=60, informa debe ser 0.
+
+Reportes a evaluar:
+${JSON.stringify(reportes, null, 2)}
+`;
+
+  const completion = await client.chat.completions.create({
+    model: "gpt-4o-mini",
+    messages: [
+      { role: "system", content: "Eres un auditor SISO. Responde SOLO con el array JSON, sin explicaciones." },
+      { role: "user", content: prompt }
+    ],
+    temperature: 0,
+  });
+
+  let contenido = completion.choices[0].message.content
+    .replace(/```json|```/g, "")
+    .trim();
+
+  let evaluaciones = [];
+  try {
+    evaluaciones = JSON.parse(contenido);
+  } catch {
+    const match = contenido.match(/\[[\s\S]*\]/);
+    if (match) evaluaciones = JSON.parse(match[0]);
+  }
+
+  if (!Array.isArray(evaluaciones)) {
+    return null;
+  }
+
+  return evaluaciones;
+};
+
+// 🔥 HANDLER PRINCIPAL
+export const handler = async (event) => {
+  // Manejo de CORS
   if (event.httpMethod === "OPTIONS") {
     return {
       statusCode: 204,
@@ -20,113 +170,82 @@ export const handler = async (event) => {
   try {
     const { registros } = JSON.parse(event.body);
 
-    const reportes = registros.map((r, i) => ({
-      id: i,
-      descripcion: r.descripcion || "",
-      accion: r.accion || "",
-    }));
+    if (!registros || !Array.isArray(registros) || registros.length === 0) {
+      return {
+        statusCode: 400,
+        headers: { "Access-Control-Allow-Origin": "*" },
+        body: JSON.stringify({ error: "No se enviaron registros válidos" }),
+      };
+    }
 
-    const prompt = `
-Eres auditor SISO en planta.
+    console.log(`📊 Procesando ${registros.length} registros...`);
 
-Evalúa con criterio real.
-
-- Si hay riesgo → relacionada = 30
-- grupo = 10 si afecta personas o área
-- corrige = 60 si corrige
-- informa = 25 si comunica
-
-Nunca corrige e informa juntos.
-
-RESPONDE SOLO JSON.
-
-${JSON.stringify(reportes, null, 2)}
-`;
-
-    const completion = await client.chat.completions.create({
-      model: "gpt-4o-mini",
-      messages: [
-        { role: "system", content: "Responde solo JSON." },
-        { role: "user", content: prompt }
-      ],
-      temperature: 0,
+    // 1. PRIMERO evaluar con REGLAS (rápido, gratis, preciso)
+    const resultadosReglas = registros.map(r => {
+      const resultado = evaluarConReglas(r.descripcion, r.accion);
+      return { ...resultado, idx: r.idx };
     });
 
-    let contenido = completion.choices[0].message.content
-      .replace(/```json|```/g, "")
-      .trim();
+    // 2. Identificar casos ambiguos (donde las reglas no detectaron NADA)
+    const casosAmbiguos = [];
+    const resultadosFinales = [...resultadosReglas];
 
-    let evaluaciones = [];
-
-    try {
-      evaluaciones = JSON.parse(contenido);
-    } catch {
-      const match = contenido.match(/\[[\s\S]*\]/);
-      if (match) evaluaciones = JSON.parse(match[0]);
+    for (let i = 0; i < registros.length; i++) {
+      if (!resultadosReglas[i].usadoReglas) {
+        casosAmbiguos.push({
+          idx: i,
+          descripcion: registros[i].descripcion,
+          accion: registros[i].accion
+        });
+      }
     }
 
-    if (!Array.isArray(evaluaciones)) {
-      evaluaciones = registros.map(() => ({
-        relacionada: 0,
-        grupo: 0,
-        corrige: 0,
-        informa: 0
-      }));
+    console.log(`🎯 Reglas aplicadas: ${registros.length - casosAmbiguos.length} registros`);
+    console.log(`🤖 Casos ambiguos para IA: ${casosAmbiguos.length} registros`);
+
+    // 3. Solo enviar a IA los casos ambiguos (AHORRO DE COSTOS)
+    if (casosAmbiguos.length > 0) {
+      const evaluacionesIA = await evaluarConIA(casosAmbiguos.map(c => ({
+        id: c.idx,
+        descripcion: c.descripcion,
+        accion: c.accion
+      })));
+
+      if (evaluacionesIA && Array.isArray(evaluacionesIA)) {
+        for (let j = 0; j < casosAmbiguos.length; j++) {
+          const caso = casosAmbiguos[j];
+          const evIA = evaluacionesIA[j] || {};
+          
+          resultadosFinales[caso.idx] = {
+            ...resultadosFinales[caso.idx],
+            relacionada: evIA.relacionada === 30 ? 30 : 0,
+            grupo: evIA.grupo === 10 ? 10 : 0,
+            corrige: evIA.corrige === 60 ? 60 : 0,
+            informa: evIA.informa === 25 ? 25 : 0,
+            usadoReglas: false
+          };
+          
+          console.log(`🤖 [IA] Evaluado caso ambiguo ${caso.idx}`);
+        }
+      }
     }
 
-    // 🔥 PALABRAS CLAVE
-    const palabrasInforma = ["report", "inform", "avis", "comunic", "traslad"];
-    const palabrasCorrige = ["repar", "corrig", "ajust", "cambi", "deten", "paro"];
-
-    // 🔥 DETECTOR DE RIESGO
-    const palabrasRiesgo = [
-      "herramienta", "rebaba", "cable", "fuga", "presion",
-      "equipo", "defecto", "dañado", "golpe", "atrap",
-      "corte", "electr", "caliente", "aceite",
-      "manguera", "conector", "tuberia", "arnes",
-      "altura", "eslinga", "troquel", "ruido",
-      "vibracion", "freno", "prensa", "esmeril",
-      "extintor", "lentes", "epp", "guante", "botas"
-    ];
-
+    // 4. Construir respuesta final
     const resultados = registros.map((r, i) => {
+      const ev = resultadosFinales[i];
+      
+      let relacionada = ev?.relacionada || 0;
+      let grupo = ev?.grupo || 0;
+      let corrige = ev?.corrige || 0;
+      let informa = ev?.informa || 0;
 
-      const ev = evaluaciones[i] || {};
-
-      let relacionada = ev.relacionada === 30 ? 30 : 0;
-      let grupo = ev.grupo === 10 ? 10 : 0;
-      let corrige = ev.corrige === 60 ? 60 : 0;
-      let informa = ev.informa === 25 ? 25 : 0;
-
-      const texto = (r.descripcion || "").toLowerCase();
-      const accion = (r.accion || "").toLowerCase();
-
-      // 🔥 CORRECCIÓN DE IA
-      if (palabrasRiesgo.some(p => texto.includes(p))) {
-        relacionada = 30;
-      }
-
-      if (texto.includes("arnes") || texto.includes("altura")) {
-        relacionada = 30;
-      }
-
-      // 🔥 SI HAY RIESGO → GRUPO
-      if (relacionada === 30) {
+      // Validación final: si hay riesgo, grupo debe ser 10
+      if (relacionada === 30 && grupo !== 10) {
         grupo = 10;
       }
 
-      // 🔥 INFORMAR
-      if (palabrasInforma.some(p => accion.includes(p))) {
-        informa = 25;
-      }
-
-      // 🔥 CORREGIR
-      if (palabrasCorrige.some(p => accion.includes(p))) {
-        corrige = 60;
-        informa = 0;
-      }
-
-      if (corrige === 60) {
+      // Validación final: si corrige=60, informa debe ser 0
+      if (corrige === 60 && informa !== 0) {
         informa = 0;
       }
 
@@ -145,6 +264,11 @@ ${JSON.stringify(reportes, null, 2)}
       };
     });
 
+    console.log(`✅ Evaluación completada. Totales:`, {
+      totalRegistros: resultados.length,
+      puntajes: resultados.map(r => r.Total)
+    });
+
     return {
       statusCode: 200,
       headers: {
@@ -155,8 +279,10 @@ ${JSON.stringify(reportes, null, 2)}
     };
 
   } catch (error) {
+    console.error("❌ Error:", error);
     return {
       statusCode: 500,
+      headers: { "Access-Control-Allow-Origin": "*" },
       body: JSON.stringify({ error: error.message }),
     };
   }
